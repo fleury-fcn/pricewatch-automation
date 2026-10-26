@@ -89,8 +89,10 @@ def parse_detail(html: bytes | str, url: str, source: str) -> RawProduct:
         for row in soup.select("table.table tr")
     }
     crumbs = [_text(li) for li in soup.select("ul.breadcrumb li")]
-    # Fil d'Ariane : Home > Books > <Catégorie> > <Titre>
+    # Fil d'Ariane : Home > Books > <Catégorie> > <Titre> ; « Default » = livre non classé
     category = crumbs[2] if len(crumbs) >= 4 else None
+    if category == "Default":
+        category = None
     image = soup.select_one("#product_gallery img")
     return RawProduct(
         source=source,

@@ -82,7 +82,10 @@ known-first-party = ["pricewatch"]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers -m \"not network\""
 markers = ["network: test qui accède réellement à Internet (désactivé par défaut)"]
-filterwarnings = ["ignore::DeprecationWarning:streamlit.*"]
+filterwarnings = [
+    "ignore::DeprecationWarning:streamlit.*",
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]
 
 [tool.coverage.run]
 source = ["pricewatch"]

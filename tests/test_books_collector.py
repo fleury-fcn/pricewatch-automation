@@ -201,3 +201,8 @@ def test_live_books_toscrape() -> None:  # pragma: no cover - exécuté manuelle
         PoliteHttpClient(CollectionSettings()),
     )
     assert len(list(collector.collect())) == 20
+
+
+def test_default_category_means_uncategorised() -> None:
+    html = DETAIL.replace(b">Poetry</a>", b">Default</a>")
+    assert parse_detail(html, BASE, "books").category is None

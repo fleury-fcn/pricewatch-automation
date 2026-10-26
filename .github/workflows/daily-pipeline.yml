@@ -1,0 +1,96 @@
+# Exécution quotidienne : collecte -> analyse -> alertes -> rapport, publié sur GitHub Pages.
+# L'état (base SQLite + rapports archivés) est conservé sur la branche gh-pages.
+name: Pipeline quotidien
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC (cf. schedule.cron dans config/config.yaml)
+  workflow_dispatch:
+    inputs:
+      reset:
+        description: "Repartir d'un historique de démo neuf (90 jours)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gh-pages
+  cancel-in-progress: false
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PRICEWATCH_DATABASE_URL: sqlite:///data/pricewatch.db
+      # Canaux d'alerte optionnels : ajouter ces secrets dans Settings > Secrets and variables
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT || '587' }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      ALERT_EMAIL_FROM: ${{ secrets.ALERT_EMAIL_FROM }}
+      ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Installer PriceWatch
+        run: |
+          pip install -r requirements.txt
+          pip install --no-deps -e .
+
+      - name: Restaurer l'état publié (gh-pages)
+        run: |
+          mkdir -p site data
+          if git fetch --depth=1 origin gh-pages 2>/dev/null; then
+            git archive origin/gh-pages | tar -x -C site
+          fi
+          if [ "${{ inputs.reset }}" != "true" ] && [ -f site/data/pricewatch.db ]; then
+            cp site/data/pricewatch.db data/pricewatch.db
+          fi
+
+      - name: Initialiser l'historique de démo (premier lancement)
+        run: |
+          if [ ! -f data/pricewatch.db ]; then
+            pricewatch seed-demo --days 90
+          fi
+
+      - name: Exécuter le pipeline
+        run: pricewatch run
+
+      - name: Construire le site
+        run: |
+          pricewatch build-site --site-dir site
+          mkdir -p site/data
+          cp data/pricewatch.db site/data/pricewatch.db
+          pricewatch export-demo --output-dir site/data
+          pricewatch status
+
+      - name: Publier sur GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          force_orphan: true # un seul commit : la base ne gonfle pas l'historique git
+          user_name: github-actions[bot]
+          user_email: 41898282+github-actions[bot]@users.noreply.github.com
+          commit_message: "chore(report): rapport quotidien"
+
+      - name: Conserver les logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ github.run_id }}
+          path: logs/
+          retention-days: 14
+          if-no-files-found: ignore

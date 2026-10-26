@@ -110,7 +110,11 @@ def _mpl_style() -> None:
 
 def _date_axis(ax: plt.Axes, max_ticks: int = 8) -> None:
     """Dates courtes (jj/mm), horizontales, en nombre limité."""
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=max_ticks))
+    low, high = ax.dataLim.intervalx
+    if high - low < 2:  # moins de 2 jours de données (unités matplotlib = jours)
+        ax.xaxis.set_major_locator(mdates.DayLocator())
+    else:
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=max_ticks))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%d/%m"))
 
 
@@ -281,8 +285,15 @@ def _layout(fig: go.Figure, title: str, height: int = 380) -> go.Figure:
         hoverlabel={"bgcolor": "white", "font": {"color": INK}},
         legend={"orientation": "h", "y": -0.15, "x": 0},
     )
-    fig.update_xaxes(gridcolor=GRID, linecolor=AXIS, tickfont={"color": MUTED}, zeroline=False)
-    fig.update_yaxes(gridcolor=GRID, linecolor=AXIS, tickfont={"color": MUTED}, zeroline=False)
+    axis = {
+        "gridcolor": GRID,
+        "linecolor": AXIS,
+        "tickfont": {"color": MUTED},
+        "zeroline": False,
+        "automargin": True,
+    }
+    fig.update_xaxes(**axis)
+    fig.update_yaxes(**axis)
     return fig
 
 
