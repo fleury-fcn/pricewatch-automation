@@ -343,7 +343,10 @@ with tab_alerts:
     if alerts.empty:
         st.info("Aucune alerte enregistrée.")
     else:
-        alerts = alerts.assign(type=alerts["kind"].map(KIND_LABELS).fillna(alerts["kind"]))
+        alerts = alerts.assign(
+            type=alerts["kind"].map(KIND_LABELS).fillna(alerts["kind"]),
+            change_pct=pd.to_numeric(alerts["change_pct"]),  # None -> NaN : cellule vide
+        )
         st.dataframe(
             alerts[["created_at", "type", "message", "price", "change_pct", "run_id"]],
             hide_index=True,
