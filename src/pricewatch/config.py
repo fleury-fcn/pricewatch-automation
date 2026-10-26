@@ -64,6 +64,23 @@ class WatchedProduct(_Strict):
     target_price: float | None = Field(None, gt=0)
 
 
+class CleaningSettings(_Strict):
+    default_currency: str = Field("GBP", pattern=r"^[A-Z]{3}$")
+    base_currency: str = Field("EUR", pattern=r"^[A-Z]{3}$")
+    # 1 unité de la devise = <taux> unités de base_currency (taux fixes indicatifs)
+    exchange_rates: dict[str, float] = Field(
+        default_factory=lambda: {"EUR": 1.0, "GBP": 1.15, "USD": 0.86, "CHF": 1.07}
+    )
+    max_price: float = Field(100_000, gt=0)
+
+    @field_validator("exchange_rates")
+    @classmethod
+    def _positive_rates(cls, value: dict[str, float]) -> dict[str, float]:
+        if any(rate <= 0 for rate in value.values()):
+            raise ValueError("les taux de change doivent être strictement positifs")
+        return {code.upper(): rate for code, rate in value.items()}
+
+
 class AnalysisSettings(_Strict):
     significant_drop_pct: float = Field(10.0, gt=0, lt=100)
     zscore_threshold: float = Field(2.5, gt=0)
@@ -112,6 +129,7 @@ class AppConfig(_Strict):
     collection: CollectionSettings = Field(default_factory=CollectionSettings)
     sources: list[SourceConfig] = Field(default_factory=list)
     watchlist: list[WatchedProduct] = Field(default_factory=list)
+    cleaning: CleaningSettings = Field(default_factory=CleaningSettings)
     analysis: AnalysisSettings = Field(default_factory=AnalysisSettings)
     alerts: AlertSettings = Field(default_factory=AlertSettings)
     report: ReportSettings = Field(default_factory=ReportSettings)

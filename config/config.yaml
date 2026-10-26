@@ -39,6 +39,16 @@ watchlist:
     name: "Sapiens: A Brief History of Humankind"
     target_price: 50.0
 
+cleaning:
+  default_currency: GBP        # devise supposée si le prix n'a pas de symbole
+  base_currency: EUR           # devise de normalisation (colonne price_base)
+  exchange_rates:              # 1 unité = x EUR (taux fixes indicatifs, à adapter)
+    EUR: 1.0
+    GBP: 1.15
+    USD: 0.86
+    CHF: 1.07
+  max_price: 100000            # au-delà : valeur rejetée comme aberrante
+
 analysis:
   significant_drop_pct: 10.0   # baisse (%) vs moyenne mobile considérée comme significative
   zscore_threshold: 2.5        # |z| au-delà duquel un prix est une anomalie
