@@ -37,7 +37,7 @@ def test_full_pipeline_with_mocked_http(test_config: AppConfig) -> None:
     # Les 3 produits suivis figurent déjà en page 1 : pas de requête supplémentaire
     assert result.n_collected == 20
     assert result.n_valid == 20 and result.n_stored == 20
-    assert set(result.reports) == {"html", "pdf"}
+    assert set(result.reports) == {"html_fr", "pdf_fr", "html_en", "pdf_en"}
     assert all(p.is_file() for p in result.reports.values())
     runs = repo.get_runs()
     assert runs.iloc[0]["status"] == "success" and runs.iloc[0]["n_requests"] > 20

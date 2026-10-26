@@ -191,7 +191,7 @@ def flag_anomalies(history: pd.DataFrame, threshold: float = 2.5, window: int = 
     return df
 
 
-def category_index(history: pd.DataFrame) -> pd.DataFrame:
+def category_index(history: pd.DataFrame, unknown_label: str = "Non classé") -> pd.DataFrame:
     """Indice de prix quotidien par catégorie (base 100 au premier jour, médiane des produits).
 
     Returns:
@@ -202,7 +202,7 @@ def category_index(history: pd.DataFrame) -> pd.DataFrame:
     df = history.reset_index(drop=True)
     df = df.assign(
         date=df["collected_at"].dt.tz_convert("UTC").dt.floor("D"),
-        category=df["category"].fillna("Non classé"),
+        category=df["category"].fillna(unknown_label),
     )
     # Prix relatif de chaque produit vs sa première observation, puis moyenne par catégorie
     first = df.sort_values("collected_at").groupby("product_id")["price"].transform("first")

@@ -108,13 +108,24 @@ class AlertSettings(_Strict):
     kinds: list[AlertKind] = ["price_drop", "target_reached", "anomaly"]
     max_alerts_per_run: int = Field(20, ge=1)
     cooldown_hours: float = Field(72, ge=0)  # pas de nouvelle alerte identique avant ce délai
+    language: Literal["fr", "en"] = "fr"  # langue des messages d'alerte envoyés
 
 
 class ReportSettings(_Strict):
-    """Emplacement, titre, taille des classements et formats du rapport."""
+    """Emplacement, titre, langues, taille des classements et formats du rapport."""
 
     output_dir: Path = Path("reports")
-    title: str = "PriceWatch — Rapport de suivi des prix"
+    title: str | None = None  # None : titre traduit par défaut (« PriceWatch — … »)
+    # Langues produites ; la première est la langue par défaut (latest.html, page d'accueil)
+    languages: list[Literal["fr", "en"]] = ["fr", "en"]
+
+    @field_validator("languages")
+    @classmethod
+    def _unique_languages(cls, value: list[str]) -> list[str]:
+        if not value or len(set(value)) != len(value):
+            raise ValueError("languages doit contenir au moins une langue, sans doublon")
+        return value
+
     top_n: int = Field(10, ge=1, le=100)
     formats: list[Literal["html", "pdf"]] = ["html", "pdf"]
 

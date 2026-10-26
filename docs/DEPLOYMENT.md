@@ -57,8 +57,10 @@ chaque jour à 06:00 UTC (et à la demande : *Actions → Pipeline quotidien →
 1. Il restaure l'état publié sur la branche `gh-pages` (base SQLite + rapports archivés) ;
 2. initialise un historique de démo au tout premier lancement ;
 3. exécute `pricewatch run` (collecte réelle, analyse, alertes, rapport) ;
-4. publie le site : <https://fleury-fcn.github.io/pricewatch-automation/>
-   (dernier rapport), `/latest.pdf`, `/archive/` (30 derniers jours), `/data/`.
+4. publie le site, en français et en anglais :
+   - <https://fleury-fcn.github.io/pricewatch-automation/> : dernier rapport en français ;
+   - <https://fleury-fcn.github.io/pricewatch-automation/en/> : dernier rapport en anglais ;
+   - `/latest_fr.pdf`, `/latest_en.pdf` ; `/archive/` (30 derniers jours, FR + EN) ; `/data/`.
 
 **Activation de GitHub Pages** (une seule fois) : *Settings → Pages → Source : Deploy from
 a branch → `gh-pages` / `(root)`*.

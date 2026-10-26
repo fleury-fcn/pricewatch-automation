@@ -42,4 +42,8 @@ def test_offline_pipeline_run_and_report(app: AppTest) -> None:
 
     next(b for b in app.button if b.label == "Générer le rapport").click().run()
     assert not app.exception, app.exception
-    assert app.session_state["report_paths"]["pdf"].is_file()
+    paths = app.session_state["report_paths"]
+    assert {"pdf_fr", "pdf_en", "html_fr", "html_en"} <= set(paths)
+    assert all(path.is_file() for path in paths.values())
+    labels = {b.label for b in app.get("download_button")}
+    assert {"⬇️ PDF FR", "⬇️ PDF EN", "⬇️ HTML FR", "⬇️ HTML EN"} <= labels

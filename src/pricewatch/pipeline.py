@@ -106,7 +106,9 @@ def run_pipeline(
             recent_pairs = zip(recent["product_id"], recent["kind"], strict=True)
             result.alerts = build_alerts(stats, config.alerts, recent_pairs)
         if result.alerts and send_alerts:
-            notifiers = build_notifiers(config.alerts.channels, secrets or load_secrets())
+            notifiers = build_notifiers(
+                config.alerts.channels, secrets or load_secrets(), config.alerts.language
+            )
             result.delivered_to = dispatch(result.alerts, notifiers)
         repo.save_alerts(result.alerts, run_id, ",".join(result.delivered_to) or None)
 

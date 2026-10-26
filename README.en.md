@@ -16,13 +16,12 @@
 | | |
 |---|---|
 | 🖥️ **Live demo** | <https://pricewatch-automation.streamlit.app> |
-| 📄 **Latest report** (rebuilt daily by GitHub Actions) | <https://fleury-fcn.github.io/pricewatch-automation/> · [PDF](https://fleury-fcn.github.io/pricewatch-automation/latest.pdf) · [archive](https://fleury-fcn.github.io/pricewatch-automation/archive/) |
-| 📑 **Versioned sample report** | [HTML](reports/examples/pricewatch_report_example.html) · [PDF](reports/examples/pricewatch_report_example.pdf) |
+| 📄 **Latest report** (rebuilt daily by GitHub Actions) | 🇬🇧 [HTML](https://fleury-fcn.github.io/pricewatch-automation/en/) · [PDF](https://fleury-fcn.github.io/pricewatch-automation/latest_en.pdf) — 🇫🇷 [HTML](https://fleury-fcn.github.io/pricewatch-automation/) · [PDF](https://fleury-fcn.github.io/pricewatch-automation/latest_fr.pdf) — [archive](https://fleury-fcn.github.io/pricewatch-automation/archive/) |
+| 📑 **Versioned sample report** | 🇬🇧 [HTML](reports/examples/pricewatch_report_example_en.html) · [PDF](reports/examples/pricewatch_report_example_en.pdf) — 🇫🇷 [HTML](reports/examples/pricewatch_report_example_fr.html) · [PDF](reports/examples/pricewatch_report_example_fr.pdf) |
 
 ![PriceWatch dashboard](docs/assets/dashboard.gif)
 
-> The user interface and the reports are in French; the code, API and this document
-> describe everything you need in English.
+> Reports are produced **in English and in French**. The dashboard interface is in French.
 
 ## The problem
 
@@ -45,8 +44,8 @@ error-prone and leaves no usable history. The goal is a tool that:
 | **Cleaning** | `pandas`: FR/EN price formats (`1 234,56 €`, `$1,234.56`), ISO currencies, mojibake (`Â£`), stock availability, duplicates, missing values. Row-level validation with a **pydantic** schema, with a reason for every rejection. |
 | **Storage** | **SQLite** through **SQLAlchemy 2**: products, price history, runs, alerts. `(product_id, collected_at)` index, idempotent inserts (`ON CONFLICT DO NOTHING`), timestamps guaranteed UTC. PostgreSQL-compatible. |
 | **Analysis** | Change vs previous observation and vs window mean, **trend** (linear regression, %/day), **z-score** of the latest price against prior history, all-time lows, per-category price index. |
-| **Alerts** | Significant drop, target price reached, anomaly; anti-spam cooldown (72 h); **console, e-mail (smtplib), Telegram, Discord** channels. |
-| **Report** | **Interactive HTML** (Plotly + Jinja2) and **PDF** (matplotlib + ReportLab), dated, with an **auto-written executive summary**, top drops, alerts and methodology. |
+| **Alerts** | Significant drop, target price reached, anomaly; anti-spam cooldown (72 h); **console, e-mail (smtplib), Telegram, Discord** channels; messages in French or English (`alerts.language`). |
+| **Report** | **Interactive HTML** (Plotly + Jinja2) and **PDF** (matplotlib + ReportLab), dated, **in English and French** (text, charts, number and date formats, alert messages), with an **auto-written executive summary**, top drops, alerts and methodology. |
 | **Interfaces** | **Typer CLI**, **FastAPI** REST API (Swagger at `/docs`), **Streamlit dashboard** with a "Run pipeline" button and PDF download. |
 | **Automation** | **GitHub Actions**: daily cron run + report published to **GitHub Pages**; CI with lint, type checking, tests and Docker image smoke test. |
 
@@ -77,7 +76,7 @@ flowchart LR
     end
 
     subgraph Outputs
-        REP[HTML + PDF report]
+        REP[HTML + PDF report<br/>EN + FR]
         NOT[E-mail · Telegram · Discord]
         API[FastAPI]
         DASH[Streamlit dashboard]
@@ -119,7 +118,8 @@ pre-commit install              # optional: ruff + black hooks
 pricewatch init-db                 # create tables
 pricewatch seed-demo --days 90     # (optional) 90 days of demo history
 pricewatch run                     # collect → clean → store → analyse → alert → report
-pricewatch report                  # rebuild the report from the database
+pricewatch report                  # rebuild the EN + FR reports from the database
+pricewatch report --lang en        # English only (or --lang fr)
 pricewatch status                  # data volume and latest runs
 pricewatch api                     # API at http://127.0.0.1:8000/docs
 pricewatch dashboard               # dashboard at http://localhost:8501
@@ -131,7 +131,7 @@ validated on load, so a misspelled key is rejected. Secrets live in `.env` or Gi
 never in YAML.
 
 **REST API**: `GET /health`, `/products`, `/prices`, `/stats`, `/alerts`, `/runs`,
-`/reports/latest.{html,pdf}` and `POST /run`, which runs the pipeline in the background with a
+`/reports/latest.{html,pdf}?lang=en|fr` and `POST /run`, which runs the pipeline in the background with a
 concurrency lock and an optional `X-API-Key`. Interactive docs are served at `/docs`.
 
 **Docker**: `docker compose up -d api dashboard`, then `docker compose run --rm pipeline`.
@@ -146,7 +146,7 @@ button performs a real collection, or replays it offline. Step-by-step deploymen
 
 | PDF report | HTML report (GitHub Pages) | API (Swagger) |
 |---|---|---|
-| ![PDF report](docs/assets/report_pdf.png) | ![HTML report](docs/assets/report_html.png) | ![Swagger](docs/assets/api_docs.png) |
+| ![PDF report](docs/assets/report_pdf_en.png) | ![HTML report](docs/assets/report_html_en.png) | ![Swagger](docs/assets/api_docs.png) |
 
 ## Results
 
@@ -156,8 +156,8 @@ button performs a real collection, or replays it offline. Step-by-step deploymen
   at 06:00 UTC, with the report published automatically;
 - over 30 days, a median of **5 significant drops** (0 to 9) and **3 anomalies** (0 to 5)
   per day across 60 products. A per-run cap and a cooldown keep alerts actionable;
-- **135 tests** (unit and integration, HTTP mocked with `respx`, dashboard tested with
-  `AppTest`), **~97 % coverage**, zero `mypy` errors, and the Docker image is tested in CI.
+- **151 tests** (unit and integration, HTTP mocked with `respx`, dashboard tested with
+  `AppTest`), **~98 % coverage**, zero `mypy` errors, and the Docker image is tested in CI.
 
 ## Limitations
 

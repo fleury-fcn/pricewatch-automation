@@ -12,18 +12,72 @@ import httpx
 import pandas as pd
 
 from pricewatch.config import AlertSettings, Secrets
-from pricewatch.formatting import fmt_money, fmt_number
+from pricewatch.formatting import fmt_money, fmt_number, fmt_pct
+from pricewatch.i18n import DEFAULT_LANG, kind_label, tr
 from pricewatch.logging_setup import get_logger
 from pricewatch.storage.repository import AlertRecord
 
 logger = get_logger(__name__)
 
-KIND_LABELS = {
-    "target_reached": "Prix cible atteint",
-    "price_drop": "Baisse significative",
-    "anomaly": "Prix anormal",
-}
+# Libellés français conservés pour le dashboard (interface en français)
+KIND_LABELS = {kind: kind_label("fr", kind) for kind in ("target_reached", "price_drop", "anomaly")}
 _KIND_PRIORITY = {"target_reached": 0, "price_drop": 1, "anomaly": 2}
+
+
+def _opt(value: object) -> float | None:
+    return None if value is None or pd.isna(value) else float(value)  # type: ignore[arg-type]
+
+
+def alert_message(
+    kind: str,
+    title: str,
+    price: float,
+    reference: float | None,
+    change_pct: float | None,
+    currency: str,
+    lang: str = DEFAULT_LANG,
+    zscore: float | None = None,
+) -> str:
+    """Rédige le message d'une alerte dans la langue demandée.
+
+    Le message est reconstruit à partir des champs structurés de l'alerte : un même
+    enregistrement peut donc être affiché en français ou en anglais.
+
+    Args:
+        kind: ``target_reached``, ``price_drop`` ou ``anomaly``.
+        title: Titre du produit.
+        price: Prix observé.
+        reference: Prix cible (``target_reached``) ou moyenne récente (autres types).
+        change_pct: Écart en % au prix de référence.
+        currency: Devise ISO.
+        lang: ``fr`` ou ``en``.
+        zscore: z-score du prix (anomalies), s'il est connu.
+    """
+    price_txt = fmt_money(price, currency, lang=lang)
+    ref_txt = fmt_money(reference, currency, lang=lang)
+    if kind == "target_reached":
+        return tr(lang, "msg_target_reached", title=title, price=price_txt, ref=ref_txt)
+    if kind == "price_drop":
+        pct = fmt_pct(abs(change_pct or 0.0), signed=False, lang=lang)
+        return tr(lang, "msg_price_drop", title=title, pct=pct, price=price_txt, ref=ref_txt)
+    if zscore is not None:
+        direction_value: float | None = zscore
+    elif change_pct is not None:
+        direction_value = change_pct
+    else:
+        direction_value = None
+    if direction_value is None or direction_value == 0:
+        direction = tr(lang, "dir_unknown")
+    else:
+        direction = tr(lang, "dir_high" if direction_value > 0 else "dir_low")
+    if zscore is not None:
+        z = f"{'+' if zscore > 0 else '−'}{fmt_number(abs(zscore), 1, lang=lang)}"
+        return tr(lang, "msg_anomaly_z", title=title, direction=direction, price=price_txt, z=z)
+    if reference is not None:
+        return tr(
+            lang, "msg_anomaly", title=title, direction=direction, price=price_txt, ref=ref_txt
+        )
+    return tr(lang, "msg_anomaly_plain", title=title, direction=direction, price=price_txt)
 
 
 def build_alerts(
@@ -35,7 +89,7 @@ def build_alerts(
 
     Args:
         stats: Sortie de :func:`pricewatch.analysis.compute_product_stats`.
-        settings: Types d'alertes actifs et plafond par exécution.
+        settings: Types d'alertes actifs, plafond par exécution et langue des messages.
         recent: Couples ``(product_id, kind)`` déjà alertés pendant le délai de
             ``cooldown`` ; ils sont ignorés pour éviter le spam.
 
@@ -43,49 +97,26 @@ def build_alerts(
         Les alertes triées par priorité (cible > baisse > anomalie) puis par ampleur.
     """
     settings = settings or AlertSettings()
+    lang = settings.language
     skip = set(recent)
     alerts: list[tuple[int, float, AlertRecord]] = []
     for row in stats.itertuples(index=False):
-        pid, cur = int(row.product_id), str(row.currency)
+        pid, cur, title = int(row.product_id), str(row.currency), str(row.title)
+        price = float(row.last_price)
+        reference, drop = _opt(row.reference_price), _opt(row.drop_pct)
         candidates: list[AlertRecord] = []
         if row.target_reached:
-            candidates.append(
-                AlertRecord(
-                    pid,
-                    "target_reached",
-                    f"« {row.title} » est à {fmt_money(row.last_price, cur)} "
-                    f"(cible {fmt_money(row.target_price, cur)}).",
-                    float(row.last_price),
-                    float(row.target_price),
-                    None,
-                )
-            )
+            target = float(row.target_price)
+            message = alert_message("target_reached", title, price, target, None, cur, lang)
+            candidates.append(AlertRecord(pid, "target_reached", message, price, target, None))
         if row.is_significant_drop:
-            candidates.append(
-                AlertRecord(
-                    pid,
-                    "price_drop",
-                    f"« {row.title} » baisse de {fmt_number(abs(row.drop_pct), 1)} % : "
-                    f"{fmt_money(row.last_price, cur)} contre {fmt_money(row.reference_price, cur)} "
-                    "en moyenne récente.",
-                    float(row.last_price),
-                    float(row.reference_price),
-                    float(row.drop_pct),
-                )
-            )
+            message = alert_message("price_drop", title, price, reference, drop, cur, lang)
+            candidates.append(AlertRecord(pid, "price_drop", message, price, reference, drop))
         if row.is_anomaly:
-            direction = "anormalement haut" if row.zscore > 0 else "anormalement bas"
-            candidates.append(
-                AlertRecord(
-                    pid,
-                    "anomaly",
-                    f"« {row.title} » : prix {direction} ({fmt_money(row.last_price, cur)}, "
-                    f"z-score {'+' if row.zscore > 0 else '−'}{fmt_number(abs(row.zscore), 1)}).",
-                    float(row.last_price),
-                    None if pd.isna(row.reference_price) else float(row.reference_price),
-                    None if pd.isna(row.drop_pct) else float(row.drop_pct),
-                )
+            message = alert_message(
+                "anomaly", title, price, reference, drop, cur, lang, zscore=float(row.zscore)
             )
+            candidates.append(AlertRecord(pid, "anomaly", message, price, reference, drop))
         for alert in candidates:
             if alert.kind in settings.kinds and (pid, alert.kind) not in skip:
                 magnitude = -abs(alert.change_pct or 0.0)
@@ -94,26 +125,32 @@ def build_alerts(
     return [alert for *_, alert in alerts[: settings.max_alerts_per_run]]
 
 
-def format_text(alerts: Sequence[AlertRecord], title: str = "PriceWatch") -> str:
+def format_text(
+    alerts: Sequence[AlertRecord], title: str = "PriceWatch", lang: str = DEFAULT_LANG
+) -> str:
     """Résumé texte brut des alertes."""
-    lines = [f"{title} — {len(alerts)} alerte(s)"]
-    lines += [f"• [{KIND_LABELS.get(a.kind, a.kind)}] {a.message}" for a in alerts]
+    lines = [tr(lang, "alerts_header", title=title, n=len(alerts))]
+    lines += [f"• [{kind_label(lang, a.kind)}] {a.message}" for a in alerts]
     return "\n".join(lines)
 
 
-def format_html(alerts: Sequence[AlertRecord], title: str = "PriceWatch") -> str:
+def format_html(
+    alerts: Sequence[AlertRecord], title: str = "PriceWatch", lang: str = DEFAULT_LANG
+) -> str:
     """Résumé HTML des alertes (corps d'e-mail)."""
     items = "".join(
-        f"<li><strong>{escape(KIND_LABELS.get(a.kind, a.kind))}</strong> — {escape(a.message)}</li>"
+        f"<li><strong>{escape(kind_label(lang, a.kind))}</strong> — {escape(a.message)}</li>"
         for a in alerts
     )
-    return f"<h2>{escape(title)} — {len(alerts)} alerte(s)</h2><ul>{items}</ul>"
+    header = escape(tr(lang, "alerts_header", title=title, n=len(alerts)))
+    return f"<h2>{header}</h2><ul>{items}</ul>"
 
 
 class Notifier(ABC):
-    """Canal de notification."""
+    """Canal de notification (``lang`` : langue des messages envoyés)."""
 
     name: str
+    lang: str = DEFAULT_LANG
 
     @abstractmethod
     def send(self, alerts: Sequence[AlertRecord]) -> None:
@@ -127,7 +164,7 @@ class ConsoleNotifier(Notifier):
 
     def send(self, alerts: Sequence[AlertRecord]) -> None:
         """Journalise chaque alerte au niveau INFO."""
-        for line in format_text(alerts).splitlines():
+        for line in format_text(alerts, lang=self.lang).splitlines():
             logger.info("%s", line)
 
 
@@ -146,11 +183,11 @@ class EmailNotifier(Notifier):
         """Envoie un e-mail multipart (texte + HTML) récapitulant les alertes."""
         s = self.secrets
         message = EmailMessage()
-        message["Subject"] = f"[PriceWatch] {len(alerts)} alerte(s) de prix"
+        message["Subject"] = tr(self.lang, "alerts_subject", n=len(alerts))
         message["From"] = s.alert_email_from or s.smtp_user or "pricewatch@localhost"
         message["To"] = s.alert_email_to
-        message.set_content(format_text(alerts))
-        message.add_alternative(format_html(alerts), subtype="html")
+        message.set_content(format_text(alerts, lang=self.lang))
+        message.add_alternative(format_html(alerts, lang=self.lang), subtype="html")
         with self._smtp_factory(s.smtp_host or "", s.smtp_port, timeout=30) as smtp:
             smtp.starttls()
             if s.smtp_user and s.smtp_password:
@@ -174,7 +211,7 @@ class TelegramNotifier(Notifier):
     def send(self, alerts: Sequence[AlertRecord]) -> None:
         """Envoie le récapitulatif via sendMessage, découpé sous la limite de Telegram."""
         url = f"https://api.telegram.org/bot{self.token}/sendMessage"
-        for chunk in _split(format_text(alerts), self.MAX_LENGTH):
+        for chunk in _split(format_text(alerts, lang=self.lang), self.MAX_LENGTH):
             self.client.post(url, json={"chat_id": self.chat_id, "text": chunk}).raise_for_status()
 
 
@@ -192,7 +229,7 @@ class DiscordNotifier(Notifier):
 
     def send(self, alerts: Sequence[AlertRecord]) -> None:
         """Poste le récapitulatif sur le webhook, découpé sous la limite de Discord."""
-        for chunk in _split(format_text(alerts), self.MAX_LENGTH):
+        for chunk in _split(format_text(alerts, lang=self.lang), self.MAX_LENGTH):
             self.client.post(self.webhook, json={"content": chunk}).raise_for_status()
 
 
@@ -224,15 +261,20 @@ _NOTIFIERS: dict[str, type[Notifier]] = {
 }
 
 
-def build_notifiers(channels: Iterable[str], secrets: Secrets) -> list[Notifier]:
+def build_notifiers(
+    channels: Iterable[str], secrets: Secrets, lang: str = DEFAULT_LANG
+) -> list[Notifier]:
     """Instancie les notifieurs demandés ; ceux mal configurés sont ignorés (avec log)."""
     notifiers: list[Notifier] = []
     for channel in channels:
         cls = _NOTIFIERS[channel]
         try:
-            notifiers.append(cls() if cls is ConsoleNotifier else cls(secrets))  # type: ignore[call-arg]
+            notifier = cls() if cls is ConsoleNotifier else cls(secrets)  # type: ignore[call-arg]
         except ValueError as exc:
             logger.warning("Canal %s désactivé : %s", channel, exc)
+            continue
+        notifier.lang = lang
+        notifiers.append(notifier)
     return notifiers
 
 

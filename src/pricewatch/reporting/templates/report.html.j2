@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="fr">
+<html lang="{{ t.html_lang }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ data.title }} — {{ data.generated_at | date }}</title>
-<meta name="description" content="Rapport PriceWatch du {{ data.generated_at | date }} : {{ s.n_products }} produits suivis, baisses de prix, anomalies et alertes.">
+<meta name="description" content="{{ t.meta_description.format(date=(data.generated_at | date), n=s.n_products) }}">
 <style>
   :root {
     color-scheme: light;
@@ -16,8 +16,12 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.55 var(--font); }
   main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 64px; }
+  .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
   header h1 { font-size: 28px; line-height: 1.2; margin: 0 0 4px; }
   .meta { color: var(--muted); font-size: 13px; }
+  .lang-switch { font-size: 14px; color: var(--accent); text-decoration: none; border: 1px solid var(--ring);
+                 background: var(--surface); border-radius: 16px; padding: 4px 12px; white-space: nowrap; }
+  .lang-switch:hover { border-color: var(--accent); }
   .note { background: var(--tint); border-left: 3px solid var(--accent); padding: 10px 14px;
           margin: 16px 0; color: var(--ink-2); font-size: 14px; border-radius: 4px; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 24px 0; }
@@ -46,40 +50,46 @@
 <body>
 <main>
 <header>
-  <h1>{{ data.title }}</h1>
-  <div class="meta">Généré le {{ data.generated_at | date(true) }} · PriceWatch v{{ version }}
-    {% if s.period_start %} · période du {{ s.period_start | date }} au {{ s.period_end | date }}{% endif %}</div>
+  <div class="topbar">
+    <div>
+      <h1>{{ data.title }}</h1>
+      <div class="meta">{{ t.generated_on.format(date=(data.generated_at | date(true))) }} · PriceWatch v{{ version }}
+        {% if s.period_start %} · {{ t.period.format(start=(s.period_start | date), end=(s.period_end | date)) }}{% endif %}</div>
+    </div>
+    {% for code, href in alternates.items() %}
+    <a class="lang-switch" data-lang="{{ code }}" hreflang="{{ code }}" href="{{ href }}">{{ "English version" if code == "en" else "Version française" }}</a>
+    {% endfor %}
+  </div>
   {% if data.simulated %}
-  <p class="note"><strong>Mode démo.</strong> La source books.toscrape.com est un bac à sable aux prix fixes :
-    les variations présentées sont simulées de façon déterministe à partir des prix réels collectés.</p>
+  <p class="note"><strong>{{ t.demo_title }}</strong> {{ t.demo_body }}</p>
   {% endif %}
 </header>
 
 <div class="tiles">
-  <div class="tile"><div class="value">{{ s.n_products | num(0) }}</div><div class="label">produits suivis</div></div>
-  <div class="tile"><div class="value">{{ s.n_significant_drops | num(0) }}</div><div class="label">baisses significatives (≤ −{{ data.significant_drop_pct | num(0) }} %)</div></div>
-  <div class="tile"><div class="value">{{ s.n_anomalies | num(0) }}</div><div class="label">prix anormaux (z-score)</div></div>
-  <div class="tile"><div class="value">{{ s.avg_change_pct | pct }}</div><div class="label">écart moyen vs moyenne récente</div></div>
-  <div class="tile"><div class="value">{{ data.alerts | length }}</div><div class="label">alertes (dernière exécution)</div></div>
+  <div class="tile"><div class="value">{{ s.n_products | num(0) }}</div><div class="label">{{ t.kpi_products }}</div></div>
+  <div class="tile"><div class="value">{{ s.n_significant_drops | num(0) }}</div><div class="label">{{ t.kpi_drops.format(threshold=(data.significant_drop_pct | num(0))) }}</div></div>
+  <div class="tile"><div class="value">{{ s.n_anomalies | num(0) }}</div><div class="label">{{ t.kpi_anomalies }}</div></div>
+  <div class="tile"><div class="value">{{ s.avg_change_pct | pct }}</div><div class="label">{{ t.kpi_avg_gap }}</div></div>
+  <div class="tile"><div class="value">{{ data.alerts | length }}</div><div class="label">{{ t.kpi_alerts }}</div></div>
 </div>
 
 <section>
-  <h2>Résumé exécutif</h2>
+  <h2>{{ t.section_summary }}</h2>
   <ul class="highlights">{% for point in data.highlights %}<li>{{ point }}</li>{% endfor %}</ul>
 </section>
 
 {% if figures.category %}<section><div class="card">{{ figures.category | safe }}</div></section>{% endif %}
 
 <section>
-  <h2>Meilleures baisses</h2>
+  <h2>{{ t.section_drops }}</h2>
   {% if figures.drops %}<div class="card">{{ figures.drops | safe }}</div>{% endif %}
-  {% if data.drops.empty %}<p>Aucune baisse par rapport à la moyenne récente.</p>{% else %}
+  {% if data.drops.empty %}<p>{{ t.no_drops }}</p>{% else %}
   <div class="card table-wrap"><table>
-    <thead><tr><th>Produit</th><th>Catégorie</th><th class="num">Prix</th><th class="num">Moyenne récente</th><th class="num">Écart</th><th class="num">Vs veille</th><th>Tendance</th></tr></thead>
+    <thead><tr><th>{{ t.col_product }}</th><th>{{ t.col_category }}</th><th class="num">{{ t.col_price }}</th><th class="num">{{ t.col_recent_avg }}</th><th class="num">{{ t.col_gap }}</th><th class="num">{{ t.col_vs_prev }}</th><th>{{ t.col_trend }}</th></tr></thead>
     <tbody>{% for r in data.drops.itertuples() %}
       <tr><td><a href="{{ r.url }}">{{ r.title }}</a></td><td>{{ r.category or "—" }}</td>
         <td class="num">{{ r.last_price | money(r.currency) }}</td><td class="num">{{ r.reference_price | money(r.currency) }}</td>
-        <td class="num">{{ r.drop_pct | pct }}</td><td class="num">{{ r.change_pct | pct }}</td><td>{{ r.trend }}</td></tr>
+        <td class="num">{{ r.drop_pct | pct }}</td><td class="num">{{ r.change_pct | pct }}</td><td>{{ r.trend | trend }}</td></tr>
     {% endfor %}</tbody>
   </table></div>{% endif %}
   {% if figures.history %}<div class="card">{{ figures.history | safe }}</div>{% endif %}
@@ -88,22 +98,22 @@
 {% if figures.distribution %}<section><div class="card">{{ figures.distribution | safe }}</div></section>{% endif %}
 
 <section>
-  <h2>Alertes de la dernière exécution</h2>
-  {% if data.alerts.empty %}<p>Aucune alerte émise.</p>{% else %}
+  <h2>{{ t.section_alerts }}</h2>
+  {% if data.alerts.empty %}<p>{{ t.no_alerts }}</p>{% else %}
   <div class="card table-wrap"><table>
-    <thead><tr><th>Type</th><th>Message</th><th class="num">Prix</th><th>Date</th></tr></thead>
+    <thead><tr><th>{{ t.col_type }}</th><th>{{ t.col_message }}</th><th class="num">{{ t.col_price }}</th><th>{{ t.col_date }}</th></tr></thead>
     <tbody>{% for a in data.alerts.itertuples() %}
       <tr><td><span class="badge {{ a.kind }}">{{ a.kind | kind_label }}</span></td><td>{{ a.message }}</td>
-        <td class="num">{{ a.price | num }}</td><td>{{ a.created_at | date }}</td></tr>
+        <td class="num">{{ a.price | money(a.currency) }}</td><td>{{ a.created_at | date }}</td></tr>
     {% endfor %}</tbody>
   </table></div>{% endif %}
 </section>
 
 {% if not data.rises.empty %}
 <section>
-  <h2>Plus fortes hausses</h2>
+  <h2>{{ t.section_rises }}</h2>
   <div class="card table-wrap"><table>
-    <thead><tr><th>Produit</th><th class="num">Prix</th><th class="num">Moyenne récente</th><th class="num">Écart</th></tr></thead>
+    <thead><tr><th>{{ t.col_product }}</th><th class="num">{{ t.col_price }}</th><th class="num">{{ t.col_recent_avg }}</th><th class="num">{{ t.col_gap }}</th></tr></thead>
     <tbody>{% for r in data.rises.itertuples() %}
       <tr><td><a href="{{ r.url }}">{{ r.title }}</a></td><td class="num">{{ r.last_price | money(r.currency) }}</td>
         <td class="num">{{ r.reference_price | money(r.currency) }}</td><td class="num">{{ r.drop_pct | pct }}</td></tr>
@@ -113,28 +123,24 @@
 {% endif %}
 
 <section>
-  <h2>Tous les produits</h2>
-  <details><summary>Afficher le tableau complet ({{ products | length }} produits)</summary>
+  <h2>{{ t.section_products }}</h2>
+  <details><summary>{{ t.show_table.format(n=(products | length)) }}</summary>
   <div class="card table-wrap"><table>
-    <thead><tr><th>Produit</th><th>Catégorie</th><th class="num">Prix</th><th class="num">Min</th><th class="num">Max</th><th class="num">Écart</th><th class="num">z-score</th><th>Tendance</th><th class="num">Obs.</th></tr></thead>
+    <thead><tr><th>{{ t.col_product }}</th><th>{{ t.col_category }}</th><th class="num">{{ t.col_price }}</th><th class="num">{{ t.col_min }}</th><th class="num">{{ t.col_max }}</th><th class="num">{{ t.col_gap }}</th><th class="num">{{ t.col_zscore }}</th><th>{{ t.col_trend }}</th><th class="num">{{ t.col_obs }}</th></tr></thead>
     <tbody>{% for r in products.itertuples() %}
       <tr><td><a href="{{ r.url }}">{{ r.title }}</a></td><td>{{ r.category or "—" }}</td>
         <td class="num">{{ r.last_price | money(r.currency) }}</td><td class="num">{{ r.min_price | num }}</td><td class="num">{{ r.max_price | num }}</td>
-        <td class="num">{{ r.drop_pct | pct }}</td><td class="num">{{ r.zscore | num(1) }}</td><td>{{ r.trend }}</td><td class="num">{{ r.n_obs }}</td></tr>
+        <td class="num">{{ r.drop_pct | pct }}</td><td class="num">{{ r.zscore | num(1) }}</td><td>{{ r.trend | trend }}</td><td class="num">{{ r.n_obs }}</td></tr>
     {% endfor %}</tbody>
   </table></div></details>
 </section>
 
 <section>
-  <h2>Méthodologie</h2>
-  <p style="color: var(--ink-2)">Collecte HTTP respectueuse (robots.txt, délai entre requêtes, User-Agent identifié, nouvelles tentatives avec backoff exponentiel).
-  Prix nettoyés (devises, séparateurs, doublons) et validés par un schéma pydantic, puis stockés dans SQLite via SQLAlchemy.
-  <strong>Écart</strong> : dernier prix comparé à la moyenne des observations de la fenêtre de tendance.
-  <strong>Anomalie</strong> : valeur absolue du z-score du dernier prix, calculé contre l'historique antérieur, au-dessus du seuil.
-  <strong>Tendance</strong> : pente d'une régression linéaire sur la fenêtre.</p>
+  <h2>{{ t.section_method }}</h2>
+  <p style="color: var(--ink-2)">{{ t.method }}</p>
 </section>
 
-<footer>PriceWatch — <a href="https://github.com/fleury-fcn/pricewatch-automation">code source</a> · Fleury Niyokwizera · licence MIT</footer>
+<footer>PriceWatch — <a href="https://github.com/fleury-fcn/pricewatch-automation">{{ t.footer_source }}</a> · Fleury Niyokwizera · {{ t.footer_license }}</footer>
 </main>
 </body>
 </html>

@@ -92,6 +92,7 @@ class AlertOut(BaseModel):
     run_id: int | None
     product_id: int
     title: str
+    currency: str
     kind: str
     message: str
     price: float
@@ -329,12 +330,19 @@ def create_app(
         return RunAccepted(message="Exécution du pipeline lancée")
 
     @app.get("/reports/latest.{fmt}", tags=["rapports"], response_class=FileResponse)
-    def latest_report(fmt: Literal["html", "pdf"]) -> FileResponse:
-        """Télécharge le dernier rapport généré."""
-        path = Path(config.report.output_dir) / f"latest.{fmt}"
+    def latest_report(
+        fmt: Literal["html", "pdf"],
+        lang: Annotated[
+            Literal["fr", "en"] | None,
+            Query(description="Langue du rapport (défaut : la première configurée)"),
+        ] = None,
+    ) -> FileResponse:
+        """Télécharge le dernier rapport généré, en français ou en anglais."""
+        lang = lang or config.report.languages[0]
+        path = Path(config.report.output_dir) / f"latest_{lang}.{fmt}"
         if not path.is_file():
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Aucun rapport généré pour l'instant")
         media = "application/pdf" if fmt == "pdf" else "text/html"
-        return FileResponse(path, media_type=media, filename=f"pricewatch_latest.{fmt}")
+        return FileResponse(path, media_type=media, filename=f"pricewatch_latest_{lang}.{fmt}")
 
     return app

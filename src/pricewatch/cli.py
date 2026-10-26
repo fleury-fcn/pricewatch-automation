@@ -23,6 +23,13 @@ app = typer.Typer(
 )
 
 
+class ReportLang(StrEnum):
+    """Langues de rapport disponibles."""
+
+    fr = "fr"
+    en = "en"
+
+
 class ReportFormat(StrEnum):
     """Formats de rapport disponibles."""
 
@@ -120,8 +127,8 @@ def run(
         f"  collectés {result.n_collected} · valides {result.n_valid} · rejetés {result.n_rejected}"
         f" · nouvelles observations {result.n_stored} · alertes {len(result.alerts)}"
     )
-    for fmt, path in result.reports.items():
-        typer.echo(f"  rapport {fmt.upper()} : {path}")
+    for key, path in result.reports.items():
+        typer.echo(f"  rapport {key.replace('_', ' ').upper()} : {path}")
     if result.status == "failed":
         raise typer.Exit(code=1)
 
@@ -132,14 +139,20 @@ def report(
         list[ReportFormat] | None, typer.Option("--format", "-f", help="Format(s) à produire.")
     ] = None,
     output_dir: Annotated[Path | None, typer.Option("--output-dir", "-o")] = None,
+    langs: Annotated[
+        list[ReportLang] | None,
+        typer.Option("--lang", "-l", help="Langue(s) à produire (défaut : celles du YAML)."),
+    ] = None,
 ) -> None:
-    """Génère le rapport HTML/PDF à partir des données déjà en base."""
+    """Génère le rapport HTML/PDF (français et anglais) à partir des données en base."""
     from pricewatch.reporting import generate_reports
 
     config = _config()
     fmts = [f.value for f in formats] if formats else None
-    for fmt, path in generate_reports(_repo(config), config, output_dir, fmts).items():
-        typer.secho(f"Rapport {fmt.upper()} : {path}", fg=typer.colors.GREEN)
+    languages = [lang.value for lang in langs] if langs else None
+    paths = generate_reports(_repo(config), config, output_dir, fmts, languages=languages)
+    for key, path in paths.items():
+        typer.secho(f"Rapport {key.replace('_', ' ').upper()} : {path}", fg=typer.colors.GREEN)
 
 
 @app.command()
@@ -200,7 +213,7 @@ def build_site(
     from pricewatch.reporting.publish import build_site as _build
 
     config = _config()
-    _build(Path(config.report.output_dir), site_dir, keep_last)
+    _build(Path(config.report.output_dir), site_dir, keep_last, config.report.languages[0])
     typer.secho(f"Site prêt : {site_dir}", fg=typer.colors.GREEN)
 
 

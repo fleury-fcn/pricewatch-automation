@@ -102,5 +102,10 @@ def test_reports_download(client: TestClient, test_config: AppConfig) -> None:
     assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
     assert client.get("/reports/latest.html").headers["content-type"].startswith("text/html")
     assert client.get("/reports/latest.docx").status_code == 422
-    (Path(test_config.report.output_dir) / "latest.pdf").unlink()
+    english = client.get("/reports/latest.html", params={"lang": "en"})
+    assert english.status_code == 200 and "Executive summary" in english.text
+    assert "Résumé exécutif" in client.get("/reports/latest.html").text  # défaut : fr
+    assert client.get("/reports/latest.pdf", params={"lang": "de"}).status_code == 422
+    (Path(test_config.report.output_dir) / "latest_fr.pdf").unlink()
     assert client.get("/reports/latest.pdf").status_code == 404
+    assert client.get("/reports/latest.pdf", params={"lang": "en"}).status_code == 200

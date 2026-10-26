@@ -396,28 +396,30 @@ with tab_runs:
 with tab_report:
     st.write(
         "Le rapport reprend le résumé exécutif, les graphiques et les tableaux ci-dessus "
-        "(toutes catégories). La version HTML est interactive."
+        "(toutes catégories), **en français et en anglais**. La version HTML est interactive."
     )
     if st.button("Générer le rapport", type="primary"):
-        with st.spinner("Génération du rapport PDF et HTML…"):
-            st.session_state["report_paths"] = generate_reports(repo, config)
+        with st.spinner("Génération des rapports PDF et HTML (FR + EN)…"):
+            st.session_state["report_paths"] = generate_reports(
+                repo, config, languages=["fr", "en"]
+            )
     paths = st.session_state.get("report_paths")
     if paths:
-        c1, c2 = st.columns(2)
-        c1.download_button(
-            "⬇️ Télécharger le PDF",
-            paths["pdf"].read_bytes(),
-            file_name=paths["pdf"].name,
-            mime="application/pdf",
-            use_container_width=True,
-        )
-        c2.download_button(
-            "⬇️ Télécharger le HTML",
-            paths["html"].read_bytes(),
-            file_name=paths["html"].name,
-            mime="text/html",
-            use_container_width=True,
-        )
+        labels = {"fr": "🇫🇷 Français", "en": "🇬🇧 English"}
+        mimes = {"pdf": "application/pdf", "html": "text/html"}
+        for lang, label in labels.items():
+            st.markdown(f"**{label}**")
+            cols = st.columns(2)
+            for col, fmt in zip(cols, ("pdf", "html"), strict=True):
+                path = paths[f"{fmt}_{lang}"]
+                col.download_button(
+                    f"⬇️ {fmt.upper()} {lang.upper()}",
+                    path.read_bytes(),
+                    file_name=path.name,
+                    mime=mimes[fmt],
+                    use_container_width=True,
+                    key=f"download-{fmt}-{lang}",
+                )
     st.caption(
         "Dernier rapport publié automatiquement : "
         "[fleury-fcn.github.io/pricewatch-automation](https://fleury-fcn.github.io/pricewatch-automation/)"

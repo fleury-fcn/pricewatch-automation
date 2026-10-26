@@ -19,6 +19,9 @@ import plotly.graph_objects as go  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 from plotly.subplots import make_subplots  # noqa: E402
 
+from pricewatch.formatting import fmt_pct  # noqa: E402
+from pricewatch.i18n import DEFAULT_LANG, tr  # noqa: E402
+
 # Palette catégorielle validée (ordre fixe, jamais recyclé) et encres neutres.
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"]
 OTHER = "#898781"
@@ -30,34 +33,43 @@ MUTED = "#898781"
 GRID = "#e1e0d9"
 AXIS = "#c3c2b7"
 FONT = "system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif"
-OTHER_LABEL = "Autres"
+OTHER_LABEL = tr("fr", "other")
+OTHER_LABELS = {tr("fr", "other"), tr("en", "other")}  # « Autres » / « Other »
+# Format des dates des infobulles Plotly et des axes matplotlib, par langue
+_PX_DATE = {"fr": "%d/%m/%Y", "en": "%d %b %Y"}
+_AXIS_DATE = {"fr": "%d/%m", "en": "%d %b"}
 
 
 # -- préparation des données --------------------------------------------------------
 def fold_categories(
-    index: pd.DataFrame, history: pd.DataFrame, max_series: int = 4
+    index: pd.DataFrame,
+    history: pd.DataFrame,
+    max_series: int = 4,
+    lang: str = DEFAULT_LANG,
 ) -> pd.DataFrame:
     """Garde les ``max_series`` catégories les plus fournies, regroupe le reste dans « Autres ».
 
     Args:
-        index: Sortie de :func:`pricewatch.analysis.category_index`.
+        index: Sortie de :func:`pricewatch.analysis.category_index` (même ``lang``).
         history: Historique (pour compter les produits par catégorie).
         max_series: Nombre de catégories affichées individuellement.
+        lang: Langue des libellés « Autres » / « Non classé ».
     """
     if index.empty:
         return index
+    other_label = tr(lang, "other")
     counts = (
-        history.assign(category=history["category"].fillna("Non classé"))
+        history.assign(category=history["category"].fillna(tr(lang, "uncategorised")))
         .groupby("category")["product_id"]
         .nunique()
         .sort_values(ascending=False, kind="stable")
     )
     keep = list(counts.index[:max_series])
     folded = index.assign(
-        category=index["category"].where(index["category"].isin(keep), OTHER_LABEL)
+        category=index["category"].where(index["category"].isin(keep), other_label)
     )
     out = folded.groupby(["date", "category"], as_index=False)["index"].mean()
-    order = keep + ([OTHER_LABEL] if OTHER_LABEL in set(out["category"]) else [])
+    order = keep + ([other_label] if other_label in set(out["category"]) else [])
     out["category"] = pd.Categorical(out["category"], categories=order, ordered=True)
     return out.sort_values(["category", "date"]).reset_index(drop=True)
 
@@ -67,7 +79,7 @@ def category_colors(categories: list[str]) -> dict[str, str]:
     colors: dict[str, str] = {}
     slot = 0
     for cat in categories:
-        if cat == OTHER_LABEL:
+        if cat in OTHER_LABELS:
             colors[cat] = OTHER
         else:
             colors[cat] = SERIES[slot % len(SERIES)]
@@ -108,14 +120,16 @@ def _mpl_style() -> None:
     )
 
 
-def _date_axis(ax: plt.Axes, max_ticks: int = 8) -> None:
-    """Dates courtes (jj/mm), horizontales, en nombre limité."""
+def _date_axis(ax: plt.Axes, max_ticks: int = 8, lang: str = DEFAULT_LANG) -> None:
+    """Dates courtes (``jj/mm`` ou ``dd Mon``), horizontales, en nombre limité."""
     low, high = ax.dataLim.intervalx
     if high - low < 2:  # moins de 2 jours de données (unités matplotlib = jours)
         ax.xaxis.set_major_locator(mdates.DayLocator())
+    elif max_ticks <= 4 and high - low > 45:  # petits graphiques : une graduation par mois
+        ax.xaxis.set_major_locator(mdates.MonthLocator())
     else:
         ax.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=max_ticks))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%d/%m"))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter(_AXIS_DATE.get(lang, "%d/%m")))
 
 
 def _png(fig: Figure) -> bytes:
@@ -125,7 +139,7 @@ def _png(fig: Figure) -> bytes:
     return buffer.getvalue()
 
 
-def mpl_category_index(folded: pd.DataFrame) -> bytes:
+def mpl_category_index(folded: pd.DataFrame, lang: str = DEFAULT_LANG) -> bytes:
     """Indice de prix par catégorie (base 100) — PNG."""
     _mpl_style()
     fig, ax = plt.subplots(figsize=(7.2, 3.2))
@@ -150,7 +164,7 @@ def mpl_category_index(folded: pd.DataFrame) -> bytes:
             annotation_clip=False,
         )
     ax.axhline(100, color=AXIS, linewidth=0.8)
-    ax.set_title("Indice de prix par catégorie (base 100, médiane des produits)", pad=24)
+    ax.set_title(tr(lang, "chart_category"), pad=24)
     ax.legend(
         loc="lower left",
         ncol=max(len(cats), 1),
@@ -160,7 +174,7 @@ def mpl_category_index(folded: pd.DataFrame) -> bytes:
         columnspacing=1.2,
         borderaxespad=0.2,
     )
-    _date_axis(ax)
+    _date_axis(ax, lang=lang)
     return _png(fig)
 
 
@@ -183,7 +197,7 @@ def _spread_labels(
     return placed
 
 
-def mpl_top_drops(drops: pd.DataFrame) -> bytes:
+def mpl_top_drops(drops: pd.DataFrame, lang: str = DEFAULT_LANG) -> bytes:
     """Plus fortes baisses vs moyenne récente — barres horizontales, PNG."""
     _mpl_style()
     data = drops.iloc[::-1]
@@ -192,7 +206,7 @@ def mpl_top_drops(drops: pd.DataFrame) -> bytes:
     ax.barh(labels, data["drop_pct"], color=SERIES[0], height=0.6)
     for y, value in enumerate(data["drop_pct"]):
         ax.annotate(
-            f"{value:.1f} %",
+            fmt_pct(value, lang=lang),
             (value, y),
             xytext=(-4, 0),
             textcoords="offset points",
@@ -205,12 +219,14 @@ def mpl_top_drops(drops: pd.DataFrame) -> bytes:
     ax.axvline(0, color=AXIS, linewidth=0.8)
     lo = float(data["drop_pct"].min()) if not data.empty else -1.0
     ax.set_xlim(lo * 1.25, 0)
-    ax.set_title("Meilleures baisses vs moyenne récente (%)")
+    ax.set_title(tr(lang, "chart_drops_pct"))
     ax.tick_params(axis="y", colors=INK_2)
     return _png(fig)
 
 
-def mpl_product_history(history: pd.DataFrame, stats: pd.DataFrame) -> bytes:
+def mpl_product_history(
+    history: pd.DataFrame, stats: pd.DataFrame, lang: str = DEFAULT_LANG
+) -> bytes:
     """Petits multiples : historique des produits de ``stats`` avec anomalies — PNG."""
     _mpl_style()
     n = max(len(stats), 1)
@@ -228,12 +244,12 @@ def mpl_product_history(history: pd.DataFrame, stats: pd.DataFrame) -> bytes:
                 edgecolors=SURFACE,
                 linewidths=1.2,
                 zorder=3,
-                label="anomalie",
+                label=tr(lang, "legend_anomaly"),
             )
         if pd.notna(row.get("reference_price")):
             ax.axhline(row["reference_price"], color=MUTED, linewidth=0.8)
         ax.set_title(_short(str(row["title"]), 26), fontsize=8.5)
-        _date_axis(ax, max_ticks=4)
+        _date_axis(ax, max_ticks=4, lang=lang)
         ax.tick_params(axis="x", labelsize=7)
         ax.tick_params(axis="y", labelsize=7)
     for ax in axes[0][len(stats) :]:
@@ -242,7 +258,7 @@ def mpl_product_history(history: pd.DataFrame, stats: pd.DataFrame) -> bytes:
     if handles:
         fig.legend(handles, labels, loc="lower right", fontsize=7)
     fig.suptitle(
-        "Historique des plus fortes baisses (trait gris : moyenne de référence)",
+        tr(lang, "chart_history_pdf"),
         x=0.01,
         ha="left",
         fontsize=10,
@@ -253,7 +269,9 @@ def mpl_product_history(history: pd.DataFrame, stats: pd.DataFrame) -> bytes:
     return _png(fig)
 
 
-def mpl_change_distribution(stats: pd.DataFrame, threshold_pct: float) -> bytes:
+def mpl_change_distribution(
+    stats: pd.DataFrame, threshold_pct: float, lang: str = DEFAULT_LANG
+) -> bytes:
     """Distribution des écarts au prix de référence — histogramme, PNG."""
     _mpl_style()
     values = stats["drop_pct"].dropna()
@@ -261,15 +279,15 @@ def mpl_change_distribution(stats: pd.DataFrame, threshold_pct: float) -> bytes:
     ax.hist(values, bins=25, color=SERIES[0], edgecolor=SURFACE, linewidth=1.5)
     ax.axvline(-threshold_pct, color=INK_2, linewidth=1)
     ax.annotate(
-        f"seuil −{threshold_pct:.0f} %",
+        f"{tr(lang, 'threshold')} {fmt_pct(-threshold_pct, decimals=0, lang=lang)}",
         (-threshold_pct, ax.get_ylim()[1] * 0.92),
         xytext=(4, 0),
         textcoords="offset points",
         fontsize=8,
         color=INK_2,
     )
-    ax.set_title("Écart du dernier prix à la moyenne récente (%)")
-    ax.set_ylabel("produits")
+    ax.set_title(tr(lang, "chart_distribution_pct"))
+    ax.set_ylabel(tr(lang, "axis_products"))
     return _png(fig)
 
 
@@ -297,9 +315,10 @@ def _layout(fig: go.Figure, title: str, height: int = 380) -> go.Figure:
     return fig
 
 
-def px_category_index(folded: pd.DataFrame) -> go.Figure:
+def px_category_index(folded: pd.DataFrame, lang: str = DEFAULT_LANG) -> go.Figure:
     """Indice de prix par catégorie — interactif."""
     fig = go.Figure()
+    date_fmt = _PX_DATE.get(lang, _PX_DATE["fr"])
     cats = [str(c) for c in folded["category"].cat.categories] if not folded.empty else []
     colors = category_colors(cats)
     for cat in cats:
@@ -313,15 +332,15 @@ def px_category_index(folded: pd.DataFrame) -> go.Figure:
                 name=cat,
                 mode="lines",
                 line={"color": colors[cat], "width": 2},
-                hovertemplate="%{x|%d/%m/%Y}<br>" + cat + " : %{y:.1f}<extra></extra>",
+                hovertemplate="%{x|" + date_fmt + "}<br>" + cat + ": %{y:.1f}<extra></extra>",
             )
         )
     fig.add_hline(y=100, line={"color": AXIS, "width": 1})
     fig.update_layout(hovermode="x unified")
-    return _layout(fig, "Indice de prix par catégorie (base 100, médiane des produits)")
+    return _layout(fig, tr(lang, "chart_category"))
 
 
-def px_top_drops(drops: pd.DataFrame) -> go.Figure:
+def px_top_drops(drops: pd.DataFrame, lang: str = DEFAULT_LANG) -> go.Figure:
     """Meilleures baisses — barres horizontales interactives."""
     data = drops.iloc[::-1]
     fig = go.Figure(
@@ -331,25 +350,28 @@ def px_top_drops(drops: pd.DataFrame) -> go.Figure:
             orientation="h",
             marker={"color": SERIES[0], "cornerradius": 4},
             width=0.6,
-            text=[f"{v:.1f} %" for v in data["drop_pct"]],
+            text=[fmt_pct(v, lang=lang) for v in data["drop_pct"]],
             textposition="outside",
             textfont={"color": INK_2},
             customdata=data[["last_price", "reference_price", "currency"]].to_numpy(),
             hovertemplate=(
-                "%{y}<br>Écart : %{x:.1f} %<br>Prix : %{customdata[0]:.2f} %{customdata[2]}"
-                "<br>Moyenne : %{customdata[1]:.2f} %{customdata[2]}<extra></extra>"
+                f"%{{y}}<br>{tr(lang, 'hover_gap')}: %{{x:.1f}}%"
+                f"<br>{tr(lang, 'hover_price')}: %{{customdata[0]:.2f}} %{{customdata[2]}}"
+                f"<br>{tr(lang, 'hover_average')}: %{{customdata[1]:.2f}} %{{customdata[2]}}"
+                "<extra></extra>"
             ),
         )
     )
     low = float(data["drop_pct"].min()) if not data.empty else -1.0
-    fig.update_xaxes(ticksuffix=" %", range=[low * 1.3, 0])  # marge pour les étiquettes
-    return _layout(
-        fig, "Meilleures baisses vs moyenne récente", height=max(260, 34 * len(data) + 90)
-    )
+    fig.update_xaxes(ticksuffix="%", range=[low * 1.3, 0])  # marge pour les étiquettes
+    return _layout(fig, tr(lang, "chart_drops"), height=max(260, 34 * len(data) + 90))
 
 
-def px_product_history(history: pd.DataFrame, stats: pd.DataFrame) -> go.Figure:
+def px_product_history(
+    history: pd.DataFrame, stats: pd.DataFrame, lang: str = DEFAULT_LANG
+) -> go.Figure:
     """Historique de prix de plusieurs produits (petits multiples, anomalies marquées)."""
+    date_fmt = _PX_DATE.get(lang, _PX_DATE["fr"])
     n = max(len(stats), 1)
     titles = [_short(str(t), 30) for t in stats["title"]] or [""]
     fig = make_subplots(rows=1, cols=n, subplot_titles=titles, horizontal_spacing=0.06)
@@ -360,10 +382,12 @@ def px_product_history(history: pd.DataFrame, stats: pd.DataFrame) -> go.Figure:
                 x=part["collected_at"],
                 y=part["price"],
                 mode="lines",
-                name="prix",
+                name=tr(lang, "legend_price"),
                 line={"color": SERIES[0], "width": 2},
                 showlegend=i == 1,
-                hovertemplate="%{x|%d/%m/%Y}<br>%{y:.2f} "
+                hovertemplate="%{x|"
+                + date_fmt
+                + "}<br>%{y:.2f} "
                 + str(row["currency"])
                 + "<extra></extra>",
             ),
@@ -377,10 +401,13 @@ def px_product_history(history: pd.DataFrame, stats: pd.DataFrame) -> go.Figure:
                     x=spikes["collected_at"],
                     y=spikes["price"],
                     mode="markers",
-                    name="anomalie",
+                    name=tr(lang, "legend_anomaly"),
                     marker={"color": CRITICAL, "size": 9, "line": {"color": SURFACE, "width": 2}},
                     showlegend=i == 1,
-                    hovertemplate="Anomalie<br>%{x|%d/%m/%Y}<br>%{y:.2f}<extra></extra>",
+                    hovertemplate=tr(lang, "hover_anomaly")
+                    + "<br>%{x|"
+                    + date_fmt
+                    + "}<br>%{y:.2f}<extra></extra>",
                 ),
                 row=1,
                 col=i,
@@ -388,12 +415,15 @@ def px_product_history(history: pd.DataFrame, stats: pd.DataFrame) -> go.Figure:
         if pd.notna(row.get("reference_price")):
             fig.add_hline(y=row["reference_price"], line={"color": MUTED, "width": 1}, row=1, col=i)
     fig.update_annotations(font={"size": 12, "color": INK_2})
-    return _layout(fig, "Historique des plus fortes baisses (gris : moyenne de référence)", 340)
+    return _layout(fig, tr(lang, "chart_history"), 340)
 
 
-def px_price_history(history: pd.DataFrame, product_ids: list[int]) -> go.Figure:
+def px_price_history(
+    history: pd.DataFrame, product_ids: list[int], lang: str = DEFAULT_LANG
+) -> go.Figure:
     """Historique de prix superposé pour une sélection de produits (dashboard)."""
     fig = go.Figure()
+    date_fmt = _PX_DATE.get(lang, _PX_DATE["fr"])
     subset = history[history["product_id"].isin(product_ids)]
     titles = subset.drop_duplicates("product_id").set_index("product_id")["title"]
     for slot, pid in enumerate(product_ids[: len(SERIES)]):
@@ -408,29 +438,31 @@ def px_price_history(history: pd.DataFrame, product_ids: list[int]) -> go.Figure
                 name=name,
                 mode="lines",
                 line={"color": SERIES[slot], "width": 2},
-                hovertemplate="%{x|%d/%m/%Y}<br>" + name + " : %{y:.2f}<extra></extra>",
+                hovertemplate="%{x|" + date_fmt + "}<br>" + name + ": %{y:.2f}<extra></extra>",
             )
         )
     fig.update_layout(hovermode="x unified")
-    return _layout(fig, "Historique des prix")
+    return _layout(fig, tr(lang, "chart_prices"))
 
 
-def px_change_distribution(stats: pd.DataFrame, threshold_pct: float) -> go.Figure:
+def px_change_distribution(
+    stats: pd.DataFrame, threshold_pct: float, lang: str = DEFAULT_LANG
+) -> go.Figure:
     """Distribution des écarts au prix de référence — histogramme interactif."""
     fig = go.Figure(
         go.Histogram(
             x=stats["drop_pct"].dropna(),
             nbinsx=25,
             marker={"color": SERIES[0], "line": {"color": SURFACE, "width": 2}},
-            hovertemplate="%{x} %<br>%{y} produits<extra></extra>",
+            hovertemplate="%{x}%<br>%{y} " + tr(lang, "axis_products") + "<extra></extra>",
         )
     )
     fig.add_vline(
         x=-threshold_pct,
         line={"color": INK_2, "width": 1},
-        annotation_text=f"seuil −{threshold_pct:.0f} %",
+        annotation_text=f"{tr(lang, 'threshold')} {fmt_pct(-threshold_pct, decimals=0, lang=lang)}",
         annotation_font_color=INK_2,
     )
-    fig.update_xaxes(ticksuffix=" %")
-    fig.update_yaxes(title_text="produits")
-    return _layout(fig, "Écart du dernier prix à la moyenne récente", 300)
+    fig.update_xaxes(ticksuffix="%")
+    fig.update_yaxes(title_text=tr(lang, "axis_products"))
+    return _layout(fig, tr(lang, "chart_distribution"), 300)

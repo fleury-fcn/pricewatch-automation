@@ -1,4 +1,11 @@
-"""Génération du rapport daté (HTML interactif via Jinja2, PDF via ReportLab)."""
+"""Génération du rapport daté, en français et en anglais.
+
+- HTML interactif (graphiques Plotly) via Jinja2 ;
+- PDF A4 (graphiques matplotlib) via ReportLab.
+
+Chaque rapport existe dans chaque langue configurée (``report.languages``) :
+``pricewatch_report_2026-10-26_fr.pdf``, ``pricewatch_report_2026-10-26_en.pdf``…
+"""
 
 from __future__ import annotations
 
@@ -6,6 +13,7 @@ import io
 import shutil
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
@@ -28,7 +36,7 @@ from reportlab.platypus import (
 )
 
 from pricewatch import __version__
-from pricewatch.alerts import KIND_LABELS
+from pricewatch.alerts import alert_message
 from pricewatch.analysis import (
     category_index,
     compute_product_stats,
@@ -39,6 +47,7 @@ from pricewatch.analysis import (
 )
 from pricewatch.config import AppConfig
 from pricewatch.formatting import fmt_date, fmt_money, fmt_number, fmt_pct
+from pricewatch.i18n import DEFAULT_LANG, check_lang, kind_label, texts, tr, trend_label
 from pricewatch.logging_setup import get_logger
 from pricewatch.reporting import charts
 from pricewatch.storage.repository import PriceRepository
@@ -48,7 +57,7 @@ logger = get_logger(__name__)
 
 @dataclass
 class ReportData:
-    """Tout ce qu'il faut pour produire un rapport (indépendant du format)."""
+    """Tout ce qu'il faut pour produire un rapport dans une langue (indépendant du format)."""
 
     title: str
     generated_at: datetime
@@ -62,6 +71,7 @@ class ReportData:
     category_series: pd.DataFrame
     significant_drop_pct: float
     simulated: bool = False
+    lang: str = DEFAULT_LANG
     highlights: list[str] = field(default_factory=list)
 
     @property
@@ -72,38 +82,92 @@ class ReportData:
         return str(self.stats["currency"].mode().iloc[0])
 
 
+def report_filename(stamp: str, lang: str, fmt: str) -> str:
+    """Nom du rapport daté : ``pricewatch_report_<date>_<langue>.<format>``."""
+    return f"pricewatch_report_{stamp}_{lang}.{fmt}"
+
+
 def executive_summary(data: ReportData) -> list[str]:
-    """Rédige les points clés du résumé exécutif à partir des indicateurs."""
-    s = data.summary
+    """Rédige les points clés du résumé exécutif dans la langue du rapport."""
+    lang, s = data.lang, data.summary
     if not s["n_products"]:
-        return ["Aucune donnée de prix disponible : lancez d'abord une collecte."]
+        return [tr(lang, "summary_empty")]
     points = [
-        f"{s['n_products']} produits suivis, {fmt_number(s['n_observations'], 0)} observations "
-        f"du {fmt_date(s['period_start'])} au {fmt_date(s['period_end'])}.",
-        f"Écart moyen du dernier prix à la moyenne récente : {fmt_pct(s['avg_change_pct'])} ; "
-        f"{s['n_drops']} produits en baisse et {s['n_rises']} en hausse depuis la veille.",
+        tr(
+            lang,
+            "summary_scope",
+            n=s["n_products"],
+            obs=fmt_number(s["n_observations"], 0, lang=lang),
+            start=fmt_date(s["period_start"], lang=lang),
+            end=fmt_date(s["period_end"], lang=lang),
+        ),
+        tr(
+            lang,
+            "summary_moves",
+            avg=fmt_pct(s["avg_change_pct"], lang=lang),
+            drops=s["n_drops"],
+            rises=s["n_rises"],
+        ),
     ]
     if biggest := s.get("biggest_drop"):
+        cur = biggest["currency"]
         points.append(
-            f"Plus forte baisse : « {biggest['title']} » à "
-            f"{fmt_money(biggest['last_price'], biggest['currency'])} "
-            f"({fmt_pct(biggest['drop_pct'])} vs {fmt_money(biggest['reference_price'], biggest['currency'])})."
+            tr(
+                lang,
+                "summary_biggest",
+                title=biggest["title"],
+                price=fmt_money(biggest["last_price"], cur, lang=lang),
+                pct=fmt_pct(biggest["drop_pct"], lang=lang),
+                ref=fmt_money(biggest["reference_price"], cur, lang=lang),
+            )
         )
     points.append(
-        f"{s['n_significant_drops']} baisse(s) significative(s) (≤ −{data.significant_drop_pct:.0f} %), "
-        f"{s['n_anomalies']} prix anormal(aux) (z-score), "
-        f"{s['n_targets_reached']} prix cible(s) atteint(s), "
-        f"{s['n_all_time_lows']} plus bas historique(s)."
+        tr(
+            lang,
+            "summary_counts",
+            drops=s["n_significant_drops"],
+            threshold=fmt_number(data.significant_drop_pct, 0, lang=lang),
+            anomalies=s["n_anomalies"],
+            targets=s["n_targets_reached"],
+            lows=s["n_all_time_lows"],
+        )
     )
     if not data.alerts.empty:
-        points.append(f"{len(data.alerts)} alerte(s) émise(s) lors de la dernière exécution.")
+        points.append(tr(lang, "summary_alerts", n=len(data.alerts)))
     return points
 
 
+def _localize_alerts(alerts: pd.DataFrame, lang: str) -> pd.DataFrame:
+    """Réécrit les messages d'alerte dans la langue du rapport (à partir des champs bruts)."""
+    if alerts.empty:
+        return alerts
+
+    def _opt(value: Any) -> float | None:
+        return None if value is None or pd.isna(value) else float(value)
+
+    messages = [
+        alert_message(
+            a.kind,
+            str(a.title),
+            float(a.price),
+            _opt(a.reference_price),
+            _opt(a.change_pct),
+            str(a.currency),
+            lang,
+        )
+        for a in alerts.itertuples()
+    ]
+    return alerts.assign(message=messages)
+
+
 def build_report_data(
-    repo: PriceRepository, config: AppConfig, generated_at: datetime | None = None
+    repo: PriceRepository,
+    config: AppConfig,
+    generated_at: datetime | None = None,
+    lang: str = DEFAULT_LANG,
 ) -> ReportData:
-    """Assemble les données du rapport depuis la base."""
+    """Assemble les données du rapport depuis la base, pour une langue."""
+    lang = check_lang(lang)
     history = repo.get_price_history()
     analysis = config.analysis
     stats = compute_product_stats(history, analysis, config.target_prices())
@@ -112,72 +176,89 @@ def build_report_data(
     alerts = repo.get_alerts(limit=200)
     if not runs.empty and not alerts.empty:
         alerts = alerts[alerts["run_id"] == runs.iloc[0]["id"]]
+    index = category_index(history, unknown_label=tr(lang, "uncategorised"))
     data = ReportData(
-        title=config.report.title,
+        title=config.report.title or tr(lang, "report_title"),
         generated_at=generated_at or datetime.now(UTC),
         summary=summarize(stats, history),
         stats=stats,
         history=flagged,
         drops=top_drops(stats, config.report.top_n),
         rises=top_rises(stats, config.report.top_n),
-        alerts=alerts.reset_index(drop=True),
+        alerts=_localize_alerts(alerts.reset_index(drop=True), lang),
         runs=runs,
-        category_series=charts.fold_categories(category_index(history), history),
+        category_series=charts.fold_categories(index, history, lang=lang),
         significant_drop_pct=analysis.significant_drop_pct,
         simulated=any(s.simulate_price_moves for s in config.enabled_sources),
+        lang=lang,
     )
     data.highlights = executive_summary(data)
     return data
 
 
 # -- HTML ------------------------------------------------------------------------
-def _jinja() -> Environment:
+def _jinja(lang: str) -> Environment:
     env = Environment(
         loader=PackageLoader("pricewatch", "reporting/templates"),
         autoescape=select_autoescape(["html", "j2"]),
         trim_blocks=True,
         lstrip_blocks=True,
+        keep_trailing_newline=True,
     )
     env.filters.update(
-        money=fmt_money,
-        pct=fmt_pct,
-        num=fmt_number,
-        date=fmt_date,
-        kind_label=lambda k: KIND_LABELS.get(k, k),
+        money=partial(fmt_money, lang=lang),
+        pct=partial(fmt_pct, lang=lang),
+        num=partial(fmt_number, lang=lang),
+        date=partial(fmt_date, lang=lang),
+        kind_label=partial(kind_label, lang),
+        trend=partial(trend_label, lang),
     )
     return env
 
 
-def render_html(data: ReportData) -> str:
-    """Rapport HTML autonome (graphiques Plotly interactifs, plotly.js via CDN)."""
+def render_html(data: ReportData, alternates: dict[str, str] | None = None) -> str:
+    """Rapport HTML autonome (graphiques Plotly interactifs, plotly.js via CDN).
+
+    Args:
+        data: Données du rapport (langue incluse).
+        alternates: Liens vers les autres langues, ``{"en": "rapport_en.html"}``.
+    """
+    lang = data.lang
     figures: list[tuple[str, Any]] = []
     if not data.category_series.empty:
-        figures.append(("category", charts.px_category_index(data.category_series)))
+        figures.append(("category", charts.px_category_index(data.category_series, lang)))
     if not data.drops.empty:
-        figures.append(("drops", charts.px_top_drops(data.drops)))
-        figures.append(("history", charts.px_product_history(data.history, data.drops.head(3))))
+        figures.append(("drops", charts.px_top_drops(data.drops, lang)))
+        figures.append(
+            ("history", charts.px_product_history(data.history, data.drops.head(3), lang))
+        )
     if not data.stats.empty and data.stats["drop_pct"].notna().any():
         figures.append(
-            ("distribution", charts.px_change_distribution(data.stats, data.significant_drop_pct))
+            (
+                "distribution",
+                charts.px_change_distribution(data.stats, data.significant_drop_pct, lang),
+            )
         )
     html_figures = {
         name: fig.to_html(
             full_html=False,
             include_plotlyjs="cdn" if i == 0 else False,
-            config={"displaylogo": False, "responsive": True},
+            config={"displaylogo": False, "responsive": True, "locale": lang},
             div_id=f"chart-{name}",
         )
         for i, (name, fig) in enumerate(figures)
     }
     products = data.stats.sort_values("drop_pct", na_position="last")
     return (
-        _jinja()
+        _jinja(lang)
         .get_template("report.html.j2")
         .render(
             data=data,
             s=data.summary,
+            t=texts(lang),
             figures=html_figures,
             products=products,
+            alternates=alternates or {},
             version=__version__,
         )
     )
@@ -197,24 +278,10 @@ def _png_image(png: bytes, width: float) -> Image:
     return image
 
 
-def render_pdf(data: ReportData) -> bytes:
-    """Rapport PDF A4 (graphiques matplotlib)."""
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        leftMargin=1.8 * cm,
-        rightMargin=1.8 * cm,
-        topMargin=1.6 * cm,
-        bottomMargin=1.6 * cm,
-        title=data.title,
-        author="PriceWatch",
-        subject="Rapport de suivi des prix",
-    )
-    width = A4[0] - 3.6 * cm
+def _pdf_styles() -> dict[str, ParagraphStyle]:
     base = getSampleStyleSheet()
     ink, ink2, muted = (colors.HexColor(c) for c in (charts.INK, charts.INK_2, charts.MUTED))
-    styles = {
+    return {
         "title": ParagraphStyle(
             "t", parent=base["Title"], alignment=TA_LEFT, fontSize=18, textColor=ink, spaceAfter=2
         ),
@@ -251,41 +318,60 @@ def render_pdf(data: ReportData) -> bytes:
             spaceBefore=6,
             spaceAfter=6,
         ),
+        "kpi": ParagraphStyle(
+            "kv",
+            parent=base["Normal"],
+            fontSize=16,
+            leading=20,
+            textColor=ink,
+            fontName="Helvetica-Bold",
+        ),
     }
-    p = lambda text, style="body": Paragraph(_pdf_text(text), styles[style])  # noqa: E731
 
+
+def render_pdf(data: ReportData) -> bytes:
+    """Rapport PDF A4 (graphiques matplotlib) dans la langue de ``data``."""
+    lang = data.lang
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=1.8 * cm,
+        rightMargin=1.8 * cm,
+        topMargin=1.6 * cm,
+        bottomMargin=1.6 * cm,
+        title=data.title,
+        author="PriceWatch",
+        subject=tr(lang, "pdf_subject"),
+        lang=lang,
+    )
+    width = A4[0] - 3.6 * cm
+    styles = _pdf_styles()
+    money = partial(fmt_money, lang=lang)
+    pct = partial(fmt_pct, lang=lang)
+
+    def p(text: Any, style: str = "body") -> Paragraph:
+        return Paragraph(_pdf_text(text), styles[style])
+
+    generated = fmt_date(data.generated_at, with_time=True, lang=lang)
     story: list[Any] = [
         p(data.title, "title"),
-        p(
-            f"Généré le {fmt_date(data.generated_at, with_time=True)} · PriceWatch v{__version__}",
-            "meta",
-        ),
+        p(f"{tr(lang, 'generated_on', date=generated)} · PriceWatch v{__version__}", "meta"),
     ]
     if data.simulated:
-        story.append(
-            p(
-                "Mode démo : la source books.toscrape.com a des prix fixes ; les variations "
-                "présentées sont simulées de façon déterministe à partir des prix réels collectés.",
-                "note",
-            )
-        )
+        story.append(p(f"{tr(lang, 'demo_title')} {tr(lang, 'demo_body')}", "note"))
     s = data.summary
     kpis = [
-        ("Produits suivis", fmt_number(s["n_products"], 0)),
-        ("Baisses significatives", fmt_number(s["n_significant_drops"], 0)),
-        ("Anomalies", fmt_number(s["n_anomalies"], 0)),
-        ("Écart moyen", fmt_pct(s["avg_change_pct"])),
+        (tr(lang, "kpi_products_short"), fmt_number(s["n_products"], 0, lang=lang)),
+        (tr(lang, "kpi_drops_short"), fmt_number(s["n_significant_drops"], 0, lang=lang)),
+        (tr(lang, "kpi_anomalies_short"), fmt_number(s["n_anomalies"], 0, lang=lang)),
+        (tr(lang, "kpi_avg_gap_short"), pct(s["avg_change_pct"])),
     ]
-    kpi_value = ParagraphStyle(
-        "kv",
-        parent=styles["body"],
-        fontSize=16,
-        leading=20,
-        textColor=ink,
-        fontName="Helvetica-Bold",
-    )
     kpi_table = Table(
-        [[Paragraph(_pdf_text(v), kpi_value) for _, v in kpis], [p(k, "meta") for k, _ in kpis]],
+        [
+            [Paragraph(_pdf_text(v), styles["kpi"]) for _, v in kpis],
+            [p(k, "meta") for k, _ in kpis],
+        ],
         colWidths=[width / 4] * 4,
     )
     kpi_table.setStyle(
@@ -298,29 +384,36 @@ def render_pdf(data: ReportData) -> bytes:
             ]
         )
     )
-    story += [Spacer(1, 8), kpi_table, p("Résumé exécutif", "h2")]
+    story += [Spacer(1, 8), kpi_table, p(tr(lang, "section_summary"), "h2")]
     story += [
         Paragraph(_pdf_text(point), styles["bullet"], bulletText="•") for point in data.highlights
     ]
 
     if not data.category_series.empty:
-        story += [Spacer(1, 8), _png_image(charts.mpl_category_index(data.category_series), width)]
+        story += [
+            Spacer(1, 8),
+            _png_image(charts.mpl_category_index(data.category_series, lang), width),
+        ]
     if not data.drops.empty:
         story += [
             KeepTogether(
-                [p("Meilleures baisses", "h2"), _png_image(charts.mpl_top_drops(data.drops), width)]
+                [
+                    p(tr(lang, "section_drops"), "h2"),
+                    _png_image(charts.mpl_top_drops(data.drops, lang), width),
+                ]
             ),
             Spacer(1, 6),
         ]
-        rows = [["Produit", "Catégorie", "Prix", "Moyenne", "Écart", "Tendance"]]
+        header = ["col_product", "col_category", "col_price", "col_average", "col_gap", "col_trend"]
+        rows: list[list[Any]] = [[tr(lang, key) for key in header]]
         rows += [
             [
                 p(r.title, "cell"),
                 p(r.category or "—", "cell"),
-                fmt_money(r.last_price, r.currency),
-                fmt_money(r.reference_price, r.currency),
-                fmt_pct(r.drop_pct),
-                r.trend,
+                money(r.last_price, r.currency),
+                money(r.reference_price, r.currency),
+                pct(r.drop_pct),
+                trend_label(lang, str(r.trend)),
             ]
             for r in data.drops.itertuples()
         ]
@@ -332,48 +425,40 @@ def render_pdf(data: ReportData) -> bytes:
         story += [
             Spacer(1, 10),
             KeepTogether(
-                _png_image(charts.mpl_product_history(data.history, data.drops.head(3)), width)
+                _png_image(
+                    charts.mpl_product_history(data.history, data.drops.head(3), lang), width
+                )
             ),
         ]
     if not data.stats.empty and data.stats["drop_pct"].notna().any():
         story += [
             Spacer(1, 8),
             _png_image(
-                charts.mpl_change_distribution(data.stats, data.significant_drop_pct), width
+                charts.mpl_change_distribution(data.stats, data.significant_drop_pct, lang), width
             ),
         ]
 
-    story.append(p("Alertes de la dernière exécution", "h2"))
+    story.append(p(tr(lang, "section_alerts"), "h2"))
     if data.alerts.empty:
-        story.append(p("Aucune alerte émise."))
+        story.append(p(tr(lang, "no_alerts")))
     else:
-        rows = [["Type", "Message", "Date"]]
+        rows = [[tr(lang, "col_type"), tr(lang, "col_message"), tr(lang, "col_date")]]
         rows += [
-            [KIND_LABELS.get(a.kind, a.kind), p(a.message, "cell"), fmt_date(a.created_at)]
+            [kind_label(lang, a.kind), p(a.message, "cell"), fmt_date(a.created_at, lang=lang)]
             for a in data.alerts.itertuples()
         ]
-        story.append(_table(rows, [3.2 * cm, 11 * cm, 2.2 * cm]))
+        story.append(_table(rows, [3.4 * cm, 10.6 * cm, 2.4 * cm]))
 
-    story += [
-        p("Méthodologie", "h2"),
-        p(
-            "Collecte HTTP respectueuse (robots.txt, délai entre requêtes, User-Agent identifié, "
-            "nouvelles tentatives avec backoff). Prix nettoyés et validés (pydantic), stockés dans "
-            "SQLite. Écart = dernier prix vs moyenne des observations de la fenêtre de tendance ; "
-            "anomalie = valeur absolue du z-score du dernier prix (vs historique antérieur) "
-            "au-dessus du seuil ; "
-            "tendance = pente d'une régression linéaire sur la fenêtre."
-        ),
-    ]
+    story += [p(tr(lang, "section_method"), "h2"), p(tr(lang, "method"))]
+    muted = colors.HexColor(charts.MUTED)
+    footer_text = _pdf_text(f"{data.title} — {fmt_date(data.generated_at, lang=lang)}")
 
     def footer(canvas: Any, document: Any) -> None:
         canvas.saveState()
         canvas.setFont("Helvetica", 7.5)
         canvas.setFillColor(muted)
-        canvas.drawString(
-            1.8 * cm, 1 * cm, _pdf_text(f"{data.title} — {fmt_date(data.generated_at)}")
-        )
-        canvas.drawRightString(A4[0] - 1.8 * cm, 1 * cm, f"Page {document.page}")
+        canvas.drawString(1.8 * cm, 1 * cm, footer_text)
+        canvas.drawRightString(A4[0] - 1.8 * cm, 1 * cm, f"{tr(lang, 'page')} {document.page}")
         canvas.restoreState()
 
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
@@ -407,26 +492,43 @@ def generate_reports(
     output_dir: Path | None = None,
     formats: list[str] | None = None,
     generated_at: datetime | None = None,
+    languages: list[str] | None = None,
 ) -> dict[str, Path]:
-    """Génère les rapports datés et met à jour ``latest.<ext>``.
+    """Génère les rapports datés pour chaque format et chaque langue.
+
+    Fichiers produits dans ``output_dir`` :
+
+    - ``pricewatch_report_<date>_<langue>.<format>`` (rapports datés) ;
+    - ``latest_<langue>.<format>`` (dernier rapport par langue) ;
+    - ``latest.<format>`` (dernier rapport dans la langue par défaut, la première).
 
     Returns:
-        Chemins des rapports datés, par format.
+        Chemins des rapports datés, clés ``"<format>_<langue>"`` (ex. ``"pdf_en"``).
     """
     output_dir = Path(output_dir or config.report.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    data = build_report_data(repo, config, generated_at)
-    stamp = data.generated_at.strftime("%Y-%m-%d")
-    paths: dict[str, Path] = {}
-    for fmt in formats or config.report.formats:
-        path = output_dir / f"pricewatch_report_{stamp}.{fmt}"
-        if fmt == "html":
-            path.write_text(render_html(data), encoding="utf-8")
-        elif fmt == "pdf":
-            path.write_bytes(render_pdf(data))
-        else:
+    fmts = formats or list(config.report.formats)
+    for fmt in fmts:
+        if fmt not in ("html", "pdf"):
             raise ValueError(f"Format de rapport inconnu : {fmt}")
-        shutil.copyfile(path, output_dir / f"latest.{fmt}")
-        paths[fmt] = path
-        logger.info("Rapport %s généré : %s", fmt.upper(), path)
+    langs: list[str] = [check_lang(lang) for lang in (languages or config.report.languages)]
+    generated_at = generated_at or datetime.now(UTC)
+    stamp = generated_at.strftime("%Y-%m-%d")
+    paths: dict[str, Path] = {}
+    for lang in langs:
+        data = build_report_data(repo, config, generated_at, lang)
+        for fmt in fmts:
+            path = output_dir / report_filename(stamp, lang, fmt)
+            if fmt == "html":
+                alternates = {
+                    other: report_filename(stamp, other, "html") for other in langs if other != lang
+                }
+                path.write_text(render_html(data, alternates), encoding="utf-8")
+            else:
+                path.write_bytes(render_pdf(data))
+            shutil.copyfile(path, output_dir / f"latest_{lang}.{fmt}")
+            if lang == langs[0]:
+                shutil.copyfile(path, output_dir / f"latest.{fmt}")
+            paths[f"{fmt}_{lang}"] = path
+            logger.info("Rapport %s (%s) généré : %s", fmt.upper(), lang, path)
     return paths

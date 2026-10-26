@@ -16,8 +16,8 @@
 | | |
 |---|---|
 | 🖥️ **Démo en ligne** | <https://pricewatch-automation.streamlit.app> |
-| 📄 **Dernier rapport** (régénéré chaque jour par GitHub Actions) | <https://fleury-fcn.github.io/pricewatch-automation/> · [PDF](https://fleury-fcn.github.io/pricewatch-automation/latest.pdf) · [archives](https://fleury-fcn.github.io/pricewatch-automation/archive/) |
-| 📑 **Rapport d'exemple versionné** | [HTML](reports/examples/pricewatch_report_example.html) · [PDF](reports/examples/pricewatch_report_example.pdf) |
+| 📄 **Dernier rapport** (régénéré chaque jour par GitHub Actions) | 🇫🇷 [HTML](https://fleury-fcn.github.io/pricewatch-automation/) · [PDF](https://fleury-fcn.github.io/pricewatch-automation/latest_fr.pdf) — 🇬🇧 [HTML](https://fleury-fcn.github.io/pricewatch-automation/en/) · [PDF](https://fleury-fcn.github.io/pricewatch-automation/latest_en.pdf) — [archives](https://fleury-fcn.github.io/pricewatch-automation/archive/) |
+| 📑 **Rapport d'exemple versionné** | 🇫🇷 [HTML](reports/examples/pricewatch_report_example_fr.html) · [PDF](reports/examples/pricewatch_report_example_fr.pdf) — 🇬🇧 [HTML](reports/examples/pricewatch_report_example_en.html) · [PDF](reports/examples/pricewatch_report_example_en.pdf) |
 
 ![Dashboard PriceWatch](docs/assets/dashboard.gif)
 
@@ -42,8 +42,8 @@ fiable et ne laisse aucune trace exploitable. Il faut un outil qui :
 | **Nettoyage** | `pandas` : prix FR/EN (`1 234,56 €`, `$1,234.56`), devises ISO, mojibake (`Â£`), disponibilité/stock, doublons, valeurs manquantes. Validation ligne à ligne par un schéma **pydantic**, rejets motivés. |
 | **Stockage** | **SQLite** via **SQLAlchemy 2** : produits, historique de prix, exécutions, alertes. Index `(product_id, collected_at)`, insertion idempotente (`ON CONFLICT DO NOTHING`), dates UTC garanties. Compatible PostgreSQL. |
 | **Analyse** | Variation vs veille et vs moyenne de fenêtre, **tendance** (régression linéaire, %/jour), **z-score** du dernier prix contre l'historique antérieur, plus bas historique, indice de prix par catégorie. |
-| **Alertes** | Baisse significative, prix cible atteint, anomalie ; anti-spam (délai de 72 h) ; canaux **console, e-mail (smtplib), Telegram, Discord**. |
-| **Rapport** | **HTML interactif** (Plotly + Jinja2) et **PDF** (matplotlib + ReportLab), datés, avec **résumé exécutif rédigé automatiquement**, classement des meilleures baisses, alertes, méthodologie. |
+| **Alertes** | Baisse significative, prix cible atteint, anomalie ; anti-spam (délai de 72 h) ; canaux **console, e-mail (smtplib), Telegram, Discord** ; messages en français ou en anglais (`alerts.language`). |
+| **Rapport** | **HTML interactif** (Plotly + Jinja2) et **PDF** (matplotlib + ReportLab), datés, **en français et en anglais** (textes, graphiques, formats de nombres et de dates, messages d'alerte), avec **résumé exécutif rédigé automatiquement**, classement des meilleures baisses, alertes, méthodologie. |
 | **Interfaces** | **CLI Typer**, **API FastAPI** (Swagger sur `/docs`), **dashboard Streamlit** avec bouton « Lancer le pipeline » et téléchargement du PDF. |
 | **Automatisation** | **GitHub Actions** : exécution quotidienne (cron) + publication du rapport sur **GitHub Pages** ; CI lint + typage + tests + image Docker. |
 
@@ -74,7 +74,7 @@ flowchart LR
     end
 
     subgraph Sorties
-        REP[Rapport HTML + PDF]
+        REP[Rapport HTML + PDF<br/>FR + EN]
         NOT[E-mail · Telegram · Discord]
         API[API FastAPI]
         DASH[Dashboard Streamlit]
@@ -132,7 +132,8 @@ pre-commit install              # facultatif : hooks ruff + black
 pricewatch init-db                 # crée les tables
 pricewatch seed-demo --days 90     # (optionnel) 90 jours d'historique de démo
 pricewatch run                     # collecte → nettoyage → stockage → analyse → alertes → rapport
-pricewatch report                  # régénère le rapport depuis la base
+pricewatch report                  # régénère les rapports FR + EN depuis la base
+pricewatch report --lang en        # uniquement en anglais (ou --lang fr)
 pricewatch status                  # volumétrie et dernières exécutions
 pricewatch api                     # API sur http://127.0.0.1:8000/docs
 pricewatch dashboard               # dashboard sur http://localhost:8501
@@ -144,8 +145,10 @@ pricewatch dashboard               # dashboard sur http://localhost:8501
 ```text
 Exécution #1 : success (68.93 s)
   collectés 60 · valides 60 · rejetés 0 · nouvelles observations 60 · alertes 6
-  rapport HTML : reports/pricewatch_report_2026-10-26.html
-  rapport PDF : reports/pricewatch_report_2026-10-26.pdf
+  rapport HTML FR : reports/pricewatch_report_2026-10-26_fr.html
+  rapport PDF FR : reports/pricewatch_report_2026-10-26_fr.pdf
+  rapport HTML EN : reports/pricewatch_report_2026-10-26_en.html
+  rapport PDF EN : reports/pricewatch_report_2026-10-26_en.pdf
 ```
 </details>
 
@@ -165,7 +168,7 @@ restent dans `.env` / les secrets GitHub, jamais dans le YAML.
 | GET | `/alerts` | dernières alertes (`kind`, `since`) |
 | GET | `/runs` | historique des exécutions |
 | POST | `/run` | lance le pipeline en tâche de fond (verrou anti-doublon, clé `X-API-Key` si `PRICEWATCH_API_KEY` est définie) |
-| GET | `/reports/latest.{html,pdf}` | dernier rapport |
+| GET | `/reports/latest.{html,pdf}?lang=fr\|en` | dernier rapport, en français ou en anglais |
 
 **Docker** : `docker compose up -d api dashboard` puis `docker compose run --rm pipeline`.
 
@@ -177,9 +180,9 @@ au démarrage, il construit une base SQLite temporaire à partir du jeu de donn�
 pipeline** effectue une vraie collecte (ou la rejoue hors ligne). Déploiement pas à pas :
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
-| Rapport PDF | Rapport HTML (GitHub Pages) | API (Swagger) |
-|---|---|---|
-| ![Rapport PDF](docs/assets/report_pdf.png) | ![Rapport HTML](docs/assets/report_html.png) | ![Swagger](docs/assets/api_docs.png) |
+| Rapport PDF (FR) | Rapport PDF (EN) | Rapport HTML (GitHub Pages) | API (Swagger) |
+|---|---|---|---|
+| ![Rapport PDF FR](docs/assets/report_pdf.png) | ![Rapport PDF EN](docs/assets/report_pdf_en.png) | ![Rapport HTML](docs/assets/report_html.png) | ![Swagger](docs/assets/api_docs.png) |
 
 ## Résultats
 
@@ -190,8 +193,8 @@ pipeline** effectue une vraie collecte (ou la rejoue hors ligne). Déploiement p
 - sur 30 jours, **5 baisses significatives** (0 à 9) et **3 anomalies** (0 à 5) détectées
   par jour en médiane sur 60 produits ; plafond par exécution et délai anti-spam pour que
   les alertes restent actionnables ;
-- **135 tests** (unitaires + intégration, HTTP simulé avec `respx`, dashboard testé avec
-  `AppTest`), **~97 % de couverture**, `mypy` sans erreur, image Docker testée en CI.
+- **151 tests** (unitaires + intégration, HTTP simulé avec `respx`, dashboard testé avec
+  `AppTest`), **~98 % de couverture**, `mypy` sans erreur, image Docker testée en CI.
 
 ## Limites
 

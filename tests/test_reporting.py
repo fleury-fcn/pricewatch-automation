@@ -9,7 +9,7 @@ from pricewatch.analysis import category_index, compute_product_stats
 from pricewatch.config import AppConfig, load_config
 from pricewatch.formatting import fmt_date, fmt_money, fmt_number, fmt_pct
 from pricewatch.reporting import build_report_data, charts, executive_summary, generate_reports
-from pricewatch.reporting.publish import build_site
+from pricewatch.reporting.publish import _page_url, build_site
 from pricewatch.reporting.report import _pdf_text, render_html, render_pdf
 from pricewatch.simulation import generate_history
 from pricewatch.storage import PriceRepository
@@ -113,16 +113,59 @@ def test_empty_report(tmp_path: Path, config: AppConfig) -> None:
 def test_generate_reports(filled_repo: PriceRepository, config: AppConfig, tmp_path: Path) -> None:
     out = tmp_path / "reports"
     paths = generate_reports(filled_repo, config, out, generated_at=NOW)
-    assert paths["html"].name == "pricewatch_report_2026-10-26.html"
-    html = paths["html"].read_text(encoding="utf-8")
+    assert set(paths) == {"html_fr", "pdf_fr", "html_en", "pdf_en"}
+    assert paths["html_fr"].name == "pricewatch_report_2026-10-26_fr.html"
+    html = paths["html_fr"].read_text(encoding="utf-8")
+    assert '<html lang="fr">' in html
     assert "Résumé exécutif" in html and "Mode démo" in html
     assert "cdn.plot.ly" in html and html.count("cdn.plot.ly") == 1
     assert "Livre &lt;" in html  # échappement Jinja2
-    pdf = paths["pdf"].read_bytes()
-    assert pdf.startswith(b"%PDF") and len(pdf) > 20_000
+    assert 'href="pricewatch_report_2026-10-26_en.html"' in html  # lien vers la version anglaise
+    for key in ("pdf_fr", "pdf_en"):
+        pdf = paths[key].read_bytes()
+        assert pdf.startswith(b"%PDF") and len(pdf) > 20_000
+    # latest.* = langue par défaut (la première configurée)
     assert (out / "latest.html").read_text(encoding="utf-8") == html
+    assert (out / "latest_en.html").read_bytes() == paths["html_en"].read_bytes()
     with pytest.raises(ValueError):
         generate_reports(filled_repo, config, out, formats=["docx"])
+    with pytest.raises(ValueError):
+        generate_reports(filled_repo, config, out, languages=["de"])
+
+
+def test_english_report(filled_repo: PriceRepository, config: AppConfig, tmp_path: Path) -> None:
+    paths = generate_reports(
+        filled_repo, config, tmp_path, formats=["html"], generated_at=NOW, languages=["en"]
+    )
+    assert set(paths) == {"html_en"}
+    html = paths["html_en"].read_text(encoding="utf-8")
+    assert '<html lang="en">' in html
+    for text in (
+        "Executive summary",
+        "Demo mode.",
+        "Top price drops",
+        "Methodology",
+        "Generated on 26 Oct 2026",
+        "tracked products",
+    ):
+        assert text in html, text
+    for french in ("Résumé exécutif", "Méthodologie", "Meilleures baisses", "produits suivis"):
+        assert french not in html, french
+    assert 'class="lang-switch"' not in html  # une seule langue : pas de lien
+    data = build_report_data(filled_repo, config, generated_at=NOW, lang="en")
+    assert data.title == "PriceWatch — Price Tracking Report"
+    assert data.highlights[0].startswith("12 tracked products")
+    categories = set(data.category_series["category"].astype(str))
+    assert "Other" in categories and not categories & {"Autres", "Non classé"}
+    if not data.alerts.empty:
+        assert not any("baisse" in m or "« " in m for m in data.alerts["message"])
+    assert render_pdf(data).startswith(b"%PDF")
+
+
+def test_report_title_override(filled_repo: PriceRepository, config: AppConfig) -> None:
+    config.report.title = "Veille tarifaire"
+    for lang in ("fr", "en"):
+        assert build_report_data(filled_repo, config, lang=lang).title == "Veille tarifaire"
 
 
 def test_plotly_figures(filled_repo: PriceRepository, config: AppConfig) -> None:
@@ -138,15 +181,42 @@ def test_build_site(filled_repo: PriceRepository, config: AppConfig, tmp_path: P
     reports, site = tmp_path / "reports", tmp_path / "site"
     generate_reports(filled_repo, config, reports, generated_at=NOW)
     (site / "archive").mkdir(parents=True)
-    for day in ("2026-10-24", "2026-10-25"):
+    for day in ("2026-10-24", "2026-10-25"):  # anciens rapports sans suffixe de langue
         (site / "archive" / f"pricewatch_report_{day}.html").write_text("old")
+    (site / "archive" / "pricewatch_report_2026-10-26.html").write_text("doublon")
     build_site(reports, site, keep_last=2)
-    assert (site / "index.html").is_file() and (site / "latest.pdf").is_file()
+    for name in ("index.html", "en/index.html", "latest.pdf", "latest_fr.pdf", "latest_en.pdf"):
+        assert (site / name).is_file(), name
     assert (site / ".nojekyll").exists()
+    home = (site / "index.html").read_text(encoding="utf-8")
+    english = (site / "en" / "index.html").read_text(encoding="utf-8")
+    assert '<html lang="fr">' in home and 'href="./en/"' in home
+    assert '<html lang="en">' in english and 'href="../"' in english
     archive = sorted(p.name for p in (site / "archive").iterdir())
     assert "pricewatch_report_2026-10-24.html" not in archive  # purge au-delà de keep_last
-    assert "pricewatch_report_2026-10-26.pdf" in archive
+    assert "pricewatch_report_2026-10-26.html" not in archive  # doublon d'une version suffixée
+    assert {
+        f"pricewatch_report_2026-10-26_{lang}.{fmt}"
+        for lang in ("fr", "en")
+        for fmt in ("html", "pdf")
+    } <= set(archive)
     index = (site / "archive" / "index.html").read_text(encoding="utf-8")
     assert "2026-10-26" in index and "2026-10-25" in index
+    assert "HTML EN" in index and "PDF FR" in index
     with pytest.raises(FileNotFoundError):
         build_site(tmp_path / "nothing", site)
+
+
+def test_build_site_single_language_legacy(tmp_path: Path) -> None:
+    reports, site = tmp_path / "reports", tmp_path / "site"
+    reports.mkdir()
+    (reports / "latest.html").write_text("<html>rapport</html>", encoding="utf-8")
+    build_site(reports, site)
+    assert (site / "index.html").read_text(encoding="utf-8") == "<html>rapport</html>"
+    assert not (site / "en").exists()
+
+
+def test_site_language_urls() -> None:
+    assert _page_url("fr", "fr", "fr") == "./"
+    assert _page_url("en", "fr", "fr") == "./en/"
+    assert _page_url("fr", "en", "fr") == "../"

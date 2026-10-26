@@ -60,10 +60,11 @@ alerts:
   kinds: [price_drop, target_reached, anomaly]
   max_alerts_per_run: 20
   cooldown_hours: 72           # évite de réalerter le même produit/type pendant 72 h
+  language: fr                 # langue des messages d'alerte (fr | en)
 
 report:
   output_dir: reports
-  title: "PriceWatch — Rapport de suivi des prix"
+  languages: [fr, en]          # rapports bilingues ; la 1re langue est celle par défaut
   top_n: 10
   formats: [html, pdf]
 
