@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (ruff, black)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install ruff==0.17.2 black==26.10.1
+      - run: ruff check .
+      - run: black --check .
+
+  tests:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - name: Installer
+        run: |
+          pip install -r requirements-dev.txt
+          pip install --no-deps -e .
+      - name: Pytest + couverture (seuil 80 %)
+        run: pytest --cov=pricewatch --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+      - name: Badge de couverture
+        if: matrix.python-version == '3.12'
+        run: |
+          python - <<'PY'
+          import json, pathlib, xml.etree.ElementTree as ET
+          rate = float(ET.parse("coverage.xml").getroot().get("line-rate")) * 100
+          color = "brightgreen" if rate >= 90 else "green" if rate >= 80 else "orange"
+          out = pathlib.Path("badge/badges"); out.mkdir(parents=True)
+          (out / "coverage.json").write_text(json.dumps(
+              {"schemaVersion": 1, "label": "couverture", "message": f"{rate:.0f} %", "color": color}))
+          print(f"Couverture : {rate:.1f} %")
+          PY
+      - uses: actions/upload-artifact@v7
+        if: matrix.python-version == '3.12'
+        with:
+          name: coverage
+          path: |
+            coverage.xml
+            badge/
+
+  docker:
+    name: Image Docker (build + smoke test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Construire l'image
+        run: docker build -t pricewatch:ci .
+      - name: Smoke test API
+        run: |
+          docker run --rm pricewatch:ci pricewatch --version
+          docker run --rm pricewatch:ci pricewatch seed-demo --days 5
+          docker run -d --name pw -p 8000:8000 pricewatch:ci
+          for i in $(seq 1 30); do curl -fs http://localhost:8000/health && break; sleep 1; done
+          curl -fs http://localhost:8000/health | grep '"status":"ok"'
+          curl -fs http://localhost:8000/openapi.json > /dev/null
+          docker logs pw
+          docker rm -f pw
+
+  publish-badge:
+    name: Publier le badge de couverture
+    needs: [lint, tests, docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: coverage
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./badge
+          keep_files: true # n'efface pas le rapport publié par le pipeline quotidien
+          user_name: github-actions[bot]
+          user_email: 41898282+github-actions[bot]@users.noreply.github.com
+          commit_message: "chore(ci): badge de couverture"

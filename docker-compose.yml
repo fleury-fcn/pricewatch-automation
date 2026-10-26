@@ -1,0 +1,49 @@
+# Usage :
+#   docker compose up -d api dashboard        # API (8000) + dashboard (8501)
+#   docker compose run --rm pipeline          # une exécution du pipeline
+#   docker compose run --rm pipeline seed-demo --days 90
+services:
+  api:
+    build: .
+    image: pricewatch:latest
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "8000:8000"
+    volumes:
+      - pricewatch-data:/app/var
+      - pricewatch-reports:/app/reports
+    restart: unless-stopped
+
+  dashboard:
+    image: pricewatch:latest
+    depends_on:
+      - api
+    environment:
+      PRICEWATCH_MODE: local
+    command: ["streamlit", "run", "app/streamlit_app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=4)"]
+    ports:
+      - "8501:8501"
+    volumes:
+      - pricewatch-data:/app/var
+      - pricewatch-reports:/app/reports
+    restart: unless-stopped
+
+  pipeline:
+    image: pricewatch:latest
+    profiles: ["jobs"]
+    env_file:
+      - path: .env
+        required: false
+    entrypoint: ["pricewatch"]
+    command: ["run"]
+    volumes:
+      - pricewatch-data:/app/var
+      - pricewatch-reports:/app/reports
+
+volumes:
+  pricewatch-data:
+  pricewatch-reports:

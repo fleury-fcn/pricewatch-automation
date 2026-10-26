@@ -55,6 +55,8 @@ def resolve_mode() -> str:
     forced = os.environ.get("PRICEWATCH_MODE", "").lower()
     if forced in {"demo", "local"}:
         return forced
+    if os.environ.get("PRICEWATCH_DATABASE_URL"):
+        return "local"
     return "local" if LOCAL_DB.is_file() and LOCAL_DB.stat().st_size > 0 else "demo"
 
 
@@ -71,7 +73,9 @@ def get_context(mode: str) -> tuple[AppConfig, PriceRepository]:
         demo.load_history(repo, DEMO_HISTORY)
         _seed_demo_alerts(repo, config)
     else:
-        config.storage.database_url = f"sqlite:///{LOCAL_DB}"
+        # PRICEWATCH_DATABASE_URL (Docker, serveur) prime sur la base locale du dépôt
+        if not os.environ.get("PRICEWATCH_DATABASE_URL"):
+            config.storage.database_url = f"sqlite:///{LOCAL_DB}"
         config.report.output_dir = ROOT / "reports"
         repo = PriceRepository.from_url(config.storage.database_url)
         repo.init_db()
@@ -125,7 +129,7 @@ with st.sidebar:
             "variations de prix simulées de façon déterministe). Le stockage est éphémère."
         )
     else:
-        st.success(f"**Mode local** : `{LOCAL_DB.relative_to(ROOT)}`")
+        st.success(f"**Mode local** : `{config.storage.database_url}`")
 
     categories = sorted(history_all["category"].dropna().unique()) if not history_all.empty else []
     selected_categories = st.multiselect("Catégories", categories, placeholder="Toutes")
