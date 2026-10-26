@@ -1,3 +1,5 @@
+# Les fixtures HTML sont des copies exactes du site : ne pas les reformater.
+exclude: ^tests/fixtures/
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
