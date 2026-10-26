@@ -1,0 +1,49 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+.Python
+
+# --- Environnements virtuels ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# --- Outils / tests ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# --- Données & sorties générées ---
+data/*.db
+data/*.db-journal
+logs/
+*.log
+reports/*.pdf
+reports/*.html
+reports/*.png
+!reports/examples/
+!reports/examples/**
