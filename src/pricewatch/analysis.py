@@ -192,7 +192,7 @@ def flag_anomalies(history: pd.DataFrame, threshold: float = 2.5, window: int = 
 
 
 def category_index(history: pd.DataFrame) -> pd.DataFrame:
-    """Indice de prix quotidien par catégorie (base 100 au premier jour).
+    """Indice de prix quotidien par catégorie (base 100 au premier jour, médiane des produits).
 
     Returns:
         DataFrame long ``date, category, index``.
@@ -207,7 +207,8 @@ def category_index(history: pd.DataFrame) -> pd.DataFrame:
     # Prix relatif de chaque produit vs sa première observation, puis moyenne par catégorie
     first = df.sort_values("collected_at").groupby("product_id")["price"].transform("first")
     df["relative"] = df["price"] / first * 100
-    out = df.groupby(["date", "category"], as_index=False)["relative"].mean()
+    # Médiane plutôt que moyenne : un pic isolé sur un produit ne déforme pas l'indice.
+    out = df.groupby(["date", "category"], as_index=False)["relative"].median()
     return out.rename(columns={"relative": "index"})
 
 

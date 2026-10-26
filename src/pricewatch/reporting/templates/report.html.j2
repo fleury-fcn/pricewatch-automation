@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ data.title }} — {{ data.generated_at | date }}</title>
+<meta name="description" content="Rapport PriceWatch du {{ data.generated_at | date }} : {{ s.n_products }} produits suivis, baisses de prix, anomalies et alertes.">
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --axis: #c3c2b7; --accent: #2a78d6; --tint: #f4f3ef;
+    --good: #006300; --critical: #d03b3b; --ring: rgba(11,11,11,.10);
+    --font: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.55 var(--font); }
+  main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 64px; }
+  header h1 { font-size: 28px; line-height: 1.2; margin: 0 0 4px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .note { background: var(--tint); border-left: 3px solid var(--accent); padding: 10px 14px;
+          margin: 16px 0; color: var(--ink-2); font-size: 14px; border-radius: 4px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 24px 0; }
+  .tile { background: var(--surface); border: 1px solid var(--ring); border-radius: 8px; padding: 14px 16px; }
+  .tile .value { font-size: 28px; font-weight: 600; }
+  .tile .label { color: var(--ink-2); font-size: 13px; }
+  section { margin-top: 32px; }
+  h2 { font-size: 19px; margin: 0 0 12px; }
+  .card { background: var(--surface); border: 1px solid var(--ring); border-radius: 8px; padding: 12px; margin-bottom: 16px; overflow: hidden; }
+  ul.highlights { padding-left: 20px; color: var(--ink-2); }
+  ul.highlights li { margin: 4px 0; }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th { text-align: left; color: var(--ink-2); font-weight: 600; border-bottom: 1px solid var(--axis); padding: 8px; white-space: nowrap; }
+  td { border-bottom: 1px solid var(--grid); padding: 7px 8px; color: var(--ink-2); vertical-align: top; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td a { color: var(--ink); text-decoration-color: var(--axis); }
+  .badge { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 10px; background: var(--tint); color: var(--ink); white-space: nowrap; }
+  .badge.anomaly::before { content: "⚠ "; color: var(--critical); }
+  .badge.price_drop::before { content: "↓ "; color: var(--accent); }
+  .badge.target_reached::before { content: "✓ "; color: var(--good); }
+  details summary { cursor: pointer; color: var(--ink-2); margin: 8px 0; }
+  footer { margin-top: 48px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>{{ data.title }}</h1>
+  <div class="meta">Généré le {{ data.generated_at | date(true) }} · PriceWatch v{{ version }}
+    {% if s.period_start %} · période du {{ s.period_start | date }} au {{ s.period_end | date }}{% endif %}</div>
+  {% if data.simulated %}
+  <p class="note"><strong>Mode démo.</strong> La source books.toscrape.com est un bac à sable aux prix fixes :
+    les variations présentées sont simulées de façon déterministe à partir des prix réels collectés.</p>
+  {% endif %}
+</header>
+
+<div class="tiles">
+  <div class="tile"><div class="value">{{ s.n_products | num(0) }}</div><div class="label">produits suivis</div></div>
+  <div class="tile"><div class="value">{{ s.n_significant_drops | num(0) }}</div><div class="label">baisses significatives (≤ −{{ data.significant_drop_pct | num(0) }} %)</div></div>
+  <div class="tile"><div class="value">{{ s.n_anomalies | num(0) }}</div><div class="label">prix anormaux (z-score)</div></div>
+  <div class="tile"><div class="value">{{ s.avg_change_pct | pct }}</div><div class="label">écart moyen vs moyenne récente</div></div>
+  <div class="tile"><div class="value">{{ data.alerts | length }}</div><div class="label">alertes (dernière exécution)</div></div>
+</div>
+
+<section>
+  <h2>Résumé exécutif</h2>
+  <ul class="highlights">{% for point in data.highlights %}<li>{{ point }}</li>{% endfor %}</ul>
+</section>
+
+{% if figures.category %}<section><div class="card">{{ figures.category | safe }}</div></section>{% endif %}
+
+<section>
+  <h2>Meilleures baisses</h2>
+  {% if figures.drops %}<div class="card">{{ figures.drops | safe }}</div>{% endif %}
+  {% if data.drops.empty %}<p>Aucune baisse par rapport à la moyenne récente.</p>{% else %}
+  <div class="card table-wrap"><table>
+    <thead><tr><th>Produit</th><th>Catégorie</th><th class="num">Prix</th><th class="num">Moyenne récente</th><th class="num">Écart</th><th class="num">Vs veille</th><th>Tendance</th></tr></thead>
+    <tbody>{% for r in data.drops.itertuples() %}
+      <tr><td><a href="{{ r.url }}">{{ r.title }}</a></td><td>{{ r.category or "—" }}</td>
+        <td class="num">{{ r.last_price | money(r.currency) }}</td><td class="num">{{ r.reference_price | money(r.currency) }}</td>
+        <td class="num">{{ r.drop_pct | pct }}</td><td class="num">{{ r.change_pct | pct }}</td><td>{{ r.trend }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>{% endif %}
+  {% if figures.history %}<div class="card">{{ figures.history | safe }}</div>{% endif %}
+</section>
+
+{% if figures.distribution %}<section><div class="card">{{ figures.distribution | safe }}</div></section>{% endif %}
+
+<section>
+  <h2>Alertes de la dernière exécution</h2>
+  {% if data.alerts.empty %}<p>Aucune alerte émise.</p>{% else %}
+  <div class="card table-wrap"><table>
+    <thead><tr><th>Type</th><th>Message</th><th class="num">Prix</th><th>Date</th></tr></thead>
+    <tbody>{% for a in data.alerts.itertuples() %}
+      <tr><td><span class="badge {{ a.kind }}">{{ a.kind | kind_label }}</span></td><td>{{ a.message }}</td>
+        <td class="num">{{ a.price | num }}</td><td>{{ a.created_at | date }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>{% endif %}
+</section>
+
+{% if not data.rises.empty %}
+<section>
+  <h2>Plus fortes hausses</h2>
+  <div class="card table-wrap"><table>
+    <thead><tr><th>Produit</th><th class="num">Prix</th><th class="num">Moyenne récente</th><th class="num">Écart</th></tr></thead>
+    <tbody>{% for r in data.rises.itertuples() %}
+      <tr><td><a href="{{ r.url }}">{{ r.title }}</a></td><td class="num">{{ r.last_price | money(r.currency) }}</td>
+        <td class="num">{{ r.reference_price | money(r.currency) }}</td><td class="num">{{ r.drop_pct | pct }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
+
+<section>
+  <h2>Tous les produits</h2>
+  <details><summary>Afficher le tableau complet ({{ products | length }} produits)</summary>
+  <div class="card table-wrap"><table>
+    <thead><tr><th>Produit</th><th>Catégorie</th><th class="num">Prix</th><th class="num">Min</th><th class="num">Max</th><th class="num">Écart</th><th class="num">z-score</th><th>Tendance</th><th class="num">Obs.</th></tr></thead>
+    <tbody>{% for r in products.itertuples() %}
+      <tr><td><a href="{{ r.url }}">{{ r.title }}</a></td><td>{{ r.category or "—" }}</td>
+        <td class="num">{{ r.last_price | money(r.currency) }}</td><td class="num">{{ r.min_price | num }}</td><td class="num">{{ r.max_price | num }}</td>
+        <td class="num">{{ r.drop_pct | pct }}</td><td class="num">{{ r.zscore | num(1) }}</td><td>{{ r.trend }}</td><td class="num">{{ r.n_obs }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div></details>
+</section>
+
+<section>
+  <h2>Méthodologie</h2>
+  <p style="color: var(--ink-2)">Collecte HTTP respectueuse (robots.txt, délai entre requêtes, User-Agent identifié, nouvelles tentatives avec backoff exponentiel).
+  Prix nettoyés (devises, séparateurs, doublons) et validés par un schéma pydantic, puis stockés dans SQLite via SQLAlchemy.
+  <strong>Écart</strong> : dernier prix comparé à la moyenne des observations de la fenêtre de tendance.
+  <strong>Anomalie</strong> : valeur absolue du z-score du dernier prix, calculé contre l'historique antérieur, au-dessus du seuil.
+  <strong>Tendance</strong> : pente d'une régression linéaire sur la fenêtre.</p>
+</section>
+
+<footer>PriceWatch — <a href="https://github.com/fleury-fcn/pricewatch-automation">code source</a> · Fleury Niyokwizera · licence MIT</footer>
+</main>
+</body>
+</html>

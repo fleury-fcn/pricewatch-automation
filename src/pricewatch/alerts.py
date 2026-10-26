@@ -12,6 +12,7 @@ import httpx
 import pandas as pd
 
 from pricewatch.config import AlertSettings, Secrets
+from pricewatch.formatting import fmt_money, fmt_number
 from pricewatch.logging_setup import get_logger
 from pricewatch.storage.repository import AlertRecord
 
@@ -23,10 +24,6 @@ KIND_LABELS = {
     "anomaly": "Prix anormal",
 }
 _KIND_PRIORITY = {"target_reached": 0, "price_drop": 1, "anomaly": 2}
-
-
-def _money(value: float | None, currency: str) -> str:
-    return "n/a" if value is None or pd.isna(value) else f"{value:,.2f} {currency}"
 
 
 def build_alerts(
@@ -56,8 +53,8 @@ def build_alerts(
                 AlertRecord(
                     pid,
                     "target_reached",
-                    f"« {row.title} » est à {_money(row.last_price, cur)} "
-                    f"(cible {_money(row.target_price, cur)}).",
+                    f"« {row.title} » est à {fmt_money(row.last_price, cur)} "
+                    f"(cible {fmt_money(row.target_price, cur)}).",
                     float(row.last_price),
                     float(row.target_price),
                     None,
@@ -68,8 +65,8 @@ def build_alerts(
                 AlertRecord(
                     pid,
                     "price_drop",
-                    f"« {row.title} » baisse de {abs(row.drop_pct):.1f} % : "
-                    f"{_money(row.last_price, cur)} contre {_money(row.reference_price, cur)} "
+                    f"« {row.title} » baisse de {fmt_number(abs(row.drop_pct), 1)} % : "
+                    f"{fmt_money(row.last_price, cur)} contre {fmt_money(row.reference_price, cur)} "
                     "en moyenne récente.",
                     float(row.last_price),
                     float(row.reference_price),
@@ -82,8 +79,8 @@ def build_alerts(
                 AlertRecord(
                     pid,
                     "anomaly",
-                    f"« {row.title} » : prix {direction} ({_money(row.last_price, cur)}, "
-                    f"z-score {row.zscore:+.1f}).",
+                    f"« {row.title} » : prix {direction} ({fmt_money(row.last_price, cur)}, "
+                    f"z-score {'+' if row.zscore > 0 else '−'}{fmt_number(abs(row.zscore), 1)}).",
                     float(row.last_price),
                     None if pd.isna(row.reference_price) else float(row.reference_price),
                     None if pd.isna(row.drop_pct) else float(row.drop_pct),
