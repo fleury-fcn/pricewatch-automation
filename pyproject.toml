@@ -1,0 +1,99 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pricewatch"
+version = "0.1.0"
+description = "Pipeline automatisé de suivi de prix e-commerce : collecte, nettoyage, stockage, analyse, alertes et rapports PDF/HTML."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Fleury Niyokwizera" }]
+keywords = ["web-scraping", "price-tracking", "data-pipeline", "automation", "etl"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "httpx>=0.28,<1",
+    "beautifulsoup4>=4.12,<5",
+    "lxml>=5,<7",
+    "pandas>=2.2,<4",
+    "numpy>=1.26,<3",
+    "pydantic>=2.7,<3",
+    "pydantic-settings>=2.3,<3",
+    "PyYAML>=6,<7",
+    "SQLAlchemy>=2.0,<3",
+    "plotly>=5.22,<8",
+    "matplotlib>=3.8,<4",
+    "Jinja2>=3.1,<4",
+    "reportlab>=4,<6",
+    "typer>=0.12,<1",
+    "fastapi>=0.110,<1",
+    "uvicorn[standard]>=0.29,<1",
+    "streamlit>=1.35,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<10",
+    "pytest-cov>=5,<8",
+    "respx>=0.21,<1",
+    "ruff>=0.5",
+    "black>=24",
+    "pre-commit>=3.7",
+    "mypy>=1.10",
+    "types-PyYAML",
+]
+
+[project.scripts]
+pricewatch = "pricewatch.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/fleury-fcn/pricewatch-automation"
+Report = "https://fleury-fcn.github.io/pricewatch-automation/"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+pricewatch = ["reporting/templates/*.j2", "py.typed"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "app"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "N", "PTH"]
+ignore = ["E501"]  # la longueur de ligne est gérée par black
+
+[tool.ruff.lint.isort]
+known-first-party = ["pricewatch"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = ["network: test qui accède réellement à Internet (désactivé par défaut)"]
+filterwarnings = ["ignore::DeprecationWarning:streamlit.*"]
+
+[tool.coverage.run]
+source = ["pricewatch"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = ["pragma: no cover", "if __name__ == .__main__.:", "if TYPE_CHECKING:"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = true

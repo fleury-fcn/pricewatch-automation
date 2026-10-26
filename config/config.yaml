@@ -1,0 +1,67 @@
+# ============================================================
+#  PriceWatch — configuration principale
+#  Les secrets (SMTP, tokens) sont lus depuis l'environnement / .env,
+#  jamais depuis ce fichier.
+# ============================================================
+
+storage:
+  database_url: sqlite:///data/pricewatch.db
+
+collection:
+  user_agent: "PriceWatchBot/0.1 (+https://github.com/fleury-fcn/pricewatch-automation)"
+  delay_seconds: 1.0        # délai minimum entre deux requêtes vers un même hôte
+  timeout_seconds: 15
+  max_retries: 3            # nouvelles tentatives sur erreurs réseau / 429 / 5xx
+  backoff_factor: 0.5       # attente = backoff_factor * 2^tentative (secondes)
+  respect_robots_txt: true
+
+sources:
+  - name: books_toscrape
+    connector: books_toscrape
+    enabled: true
+    base_url: https://books.toscrape.com/
+    max_pages: 3            # 20 produits par page
+    categories: []          # vide = catalogue général ; ex. ["travel_2", "mystery_3"]
+    # books.toscrape.com est un bac à sable aux prix figés : cette option applique une
+    # variation déterministe (seed produit + date) pour que l'analyse ait des données à traiter.
+    # À désactiver pour une source réelle.
+    simulate_price_moves: true
+
+# Produits suivis explicitement (alerte si le prix passe sous target_price)
+watchlist:
+  - url: https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html
+    name: A Light in the Attic
+    target_price: 48.0
+  - url: https://books.toscrape.com/catalogue/tipping-the-velvet_999/index.html
+    name: Tipping the Velvet
+    target_price: 50.0
+  - url: https://books.toscrape.com/catalogue/sapiens-a-brief-history-of-humankind_996/index.html
+    name: "Sapiens: A Brief History of Humankind"
+    target_price: 50.0
+
+analysis:
+  significant_drop_pct: 10.0   # baisse (%) vs moyenne mobile considérée comme significative
+  zscore_threshold: 2.5        # |z| au-delà duquel un prix est une anomalie
+  trend_window_days: 14        # fenêtre de calcul de la tendance
+  min_history_points: 5        # points minimum pour calculer z-score / tendance
+
+alerts:
+  channels: [console]          # console | email | telegram | discord
+  kinds: [price_drop, target_reached, anomaly]
+  max_alerts_per_run: 20
+
+report:
+  output_dir: reports
+  title: "PriceWatch — Rapport de suivi des prix"
+  top_n: 10
+  formats: [html, pdf]
+
+schedule:
+  cron: "0 6 * * *"            # tous les jours à 06:00 UTC (GitHub Actions)
+  timezone: UTC
+
+logging:
+  level: INFO
+  file: logs/pricewatch.log
+  max_bytes: 1048576           # 1 Mo
+  backup_count: 5
