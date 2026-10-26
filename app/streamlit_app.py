@@ -18,6 +18,7 @@ import sys
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:  # fonctionne même sans `pip install -e .`
@@ -105,11 +106,13 @@ def load_frames(_repo: PriceRepository, _config: AppConfig, version: tuple[int, 
 
 
 def data_version(repo: PriceRepository) -> tuple[int, int]:
+    """Empreinte de la base (observations, dernière exécution) servant de clé de cache."""
     runs = repo.get_runs(limit=1)
     return repo.count_observations(), int(runs.iloc[0]["id"]) if not runs.empty else 0
 
 
-def money_column(label: str) -> st.column_config.NumberColumn:
+def money_column(label: str) -> Any:
+    """Colonne monétaire à deux décimales."""
     return st.column_config.NumberColumn(label, format="%.2f")
 
 

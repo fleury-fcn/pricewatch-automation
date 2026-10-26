@@ -30,7 +30,7 @@ def _text(node: Tag | None) -> str | None:
 def _rating(node: Tag | None) -> int | None:
     if node is None:
         return None
-    classes = node.get("class") or []
+    classes: list[str] = list(node.get("class") or [])
     return next((_RATINGS[c] for c in classes if c in _RATINGS), None)
 
 

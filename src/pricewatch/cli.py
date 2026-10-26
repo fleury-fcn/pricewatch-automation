@@ -24,6 +24,8 @@ app = typer.Typer(
 
 
 class ReportFormat(StrEnum):
+    """Formats de rapport disponibles."""
+
     html = "html"
     pdf = "pdf"
 

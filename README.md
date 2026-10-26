@@ -4,7 +4,7 @@
 [![Couverture](https://img.shields.io/endpoint?url=https://fleury-fcn.github.io/pricewatch-automation/badges/coverage.json)](https://github.com/fleury-fcn/pricewatch-automation/actions/workflows/ci.yml)
 [![Pipeline quotidien](https://github.com/fleury-fcn/pricewatch-automation/actions/workflows/daily-pipeline.yml/badge.svg)](https://github.com/fleury-fcn/pricewatch-automation/actions/workflows/daily-pipeline.yml)
 [![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://pricewatch-automation.streamlit.app)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](pyproject.toml)
 [![Licence MIT](https://img.shields.io/badge/licence-MIT-green)](LICENSE)
 
 > Pipeline automatisé de suivi de prix e-commerce : collecte → nettoyage → stockage →

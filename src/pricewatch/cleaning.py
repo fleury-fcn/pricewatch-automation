@@ -187,7 +187,8 @@ def clean_products(
                 reason = "; ".join(
                     f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()
                 )
-        report.rejections.append(Rejection(url=_none_if_na(record.get("url")), reason=reason))
+        url = _none_if_na(record.get("url"))
+        report.rejections.append(Rejection(url=None if url is None else str(url), reason=reason))
 
     report.n_rejected = len(report.rejections)
     report.n_valid = len(rows)
@@ -208,7 +209,7 @@ def clean_products(
 
 def _none_if_na(value: object) -> object:
     try:
-        return None if pd.isna(value) else value  # type: ignore[arg-type]
+        return None if pd.isna(value) else value
     except (TypeError, ValueError):  # listes/objets non scalaires
         return value
 

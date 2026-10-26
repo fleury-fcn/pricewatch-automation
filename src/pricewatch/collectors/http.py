@@ -78,9 +78,9 @@ class PoliteHttpClient:
         else:
             # Même sémantique que urllib.robotparser.RobotFileParser.read()
             if response.status_code in (401, 403):
-                parser.disallow_all = True
+                parser.disallow_all = True  # type: ignore[attr-defined]  # attribut non typé
             elif response.status_code >= 400:
-                parser.allow_all = True
+                parser.allow_all = True  # type: ignore[attr-defined]
             else:
                 parser.parse(response.text.splitlines())
         # RobotFileParser.can_fetch() renvoie toujours False tant que last_checked vaut 0.

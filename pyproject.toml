@@ -7,14 +7,14 @@ name = "pricewatch"
 version = "0.1.0"
 description = "Pipeline automatisé de suivi de prix e-commerce : collecte, nettoyage, stockage, analyse, alertes et rapports PDF/HTML."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "Fleury Niyokwizera" }]
 keywords = ["web-scraping", "price-tracking", "data-pipeline", "automation", "etl"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent",
 ]
 dependencies = [
@@ -64,16 +64,20 @@ pricewatch = ["reporting/templates/*.j2", "py.typed"]
 
 [tool.black]
 line-length = 100
-target-version = ["py311"]
+target-version = ["py312"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 src = ["src", "tests", "app"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "N", "PTH"]
-ignore = ["E501"]  # la longueur de ligne est gérée par black
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "N", "PTH", "D1"]
+# E501 : longueur gérée par black ; D105/D107 : méthodes magiques et __init__ documentés par la classe
+ignore = ["E501", "D105", "D107"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D1"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["pricewatch"]
@@ -97,6 +101,7 @@ skip_covered = false
 exclude_lines = ["pragma: no cover", "if __name__ == .__main__.:", "if TYPE_CHECKING:"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
 ignore_missing_imports = true
 warn_unused_ignores = true

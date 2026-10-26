@@ -28,10 +28,14 @@ class _Strict(BaseModel):
 
 
 class StorageSettings(_Strict):
+    """Connexion à la base de données."""
+
     database_url: str = "sqlite:///data/pricewatch.db"
 
 
 class CollectionSettings(_Strict):
+    """Politesse de la collecte : User-Agent, délais, timeouts, retries, robots.txt."""
+
     user_agent: str = "PriceWatchBot/0.1 (+https://github.com/fleury-fcn/pricewatch-automation)"
     delay_seconds: float = Field(1.0, ge=0)
     timeout_seconds: float = Field(15.0, gt=0)
@@ -41,6 +45,8 @@ class CollectionSettings(_Strict):
 
 
 class SourceConfig(_Strict):
+    """Une source à collecter et le connecteur qui la prend en charge."""
+
     name: str
     connector: str
     enabled: bool = True
@@ -59,12 +65,16 @@ class SourceConfig(_Strict):
 
 
 class WatchedProduct(_Strict):
+    """Produit suivi explicitement, avec un prix cible optionnel."""
+
     url: str
     name: str | None = None
     target_price: float | None = Field(None, gt=0)
 
 
 class CleaningSettings(_Strict):
+    """Normalisation des devises et bornes de validité des prix."""
+
     default_currency: str = Field("GBP", pattern=r"^[A-Z]{3}$")
     base_currency: str = Field("EUR", pattern=r"^[A-Z]{3}$")
     # 1 unité de la devise = <taux> unités de base_currency (taux fixes indicatifs)
@@ -82,6 +92,8 @@ class CleaningSettings(_Strict):
 
 
 class AnalysisSettings(_Strict):
+    """Seuils d'analyse : baisse significative, z-score, fenêtre de tendance."""
+
     significant_drop_pct: float = Field(10.0, gt=0, lt=100)
     zscore_threshold: float = Field(2.5, gt=0)
     trend_window_days: int = Field(14, ge=2)
@@ -89,22 +101,27 @@ class AnalysisSettings(_Strict):
 
 
 class AlertSettings(_Strict):
-    channels: list[AlertChannel] = Field(default_factory=lambda: ["console"])
-    kinds: list[AlertKind] = Field(
-        default_factory=lambda: ["price_drop", "target_reached", "anomaly"]
-    )
+    """Canaux, types d'alertes, plafond par exécution et délai anti-spam."""
+
+    # pydantic copie les valeurs par défaut mutables : une liste littérale est sûre
+    channels: list[AlertChannel] = ["console"]
+    kinds: list[AlertKind] = ["price_drop", "target_reached", "anomaly"]
     max_alerts_per_run: int = Field(20, ge=1)
     cooldown_hours: float = Field(72, ge=0)  # pas de nouvelle alerte identique avant ce délai
 
 
 class ReportSettings(_Strict):
+    """Emplacement, titre, taille des classements et formats du rapport."""
+
     output_dir: Path = Path("reports")
     title: str = "PriceWatch — Rapport de suivi des prix"
     top_n: int = Field(10, ge=1, le=100)
-    formats: list[Literal["html", "pdf"]] = Field(default_factory=lambda: ["html", "pdf"])
+    formats: list[Literal["html", "pdf"]] = ["html", "pdf"]
 
 
 class ScheduleSettings(_Strict):
+    """Planification (cron) documentée pour l'automatisation."""
+
     cron: str = "0 6 * * *"
     timezone: str = "UTC"
 
@@ -117,6 +134,8 @@ class ScheduleSettings(_Strict):
 
 
 class LoggingSettings(_Strict):
+    """Niveau de log et fichier avec rotation."""
+
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     file: Path | None = Path("logs/pricewatch.log")
     max_bytes: int = Field(1_048_576, ge=1024)

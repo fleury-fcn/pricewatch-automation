@@ -126,6 +126,7 @@ class ConsoleNotifier(Notifier):
     name = "console"
 
     def send(self, alerts: Sequence[AlertRecord]) -> None:
+        """Journalise chaque alerte au niveau INFO."""
         for line in format_text(alerts).splitlines():
             logger.info("%s", line)
 
@@ -142,6 +143,7 @@ class EmailNotifier(Notifier):
         self._smtp_factory = smtp_factory
 
     def send(self, alerts: Sequence[AlertRecord]) -> None:
+        """Envoie un e-mail multipart (texte + HTML) récapitulant les alertes."""
         s = self.secrets
         message = EmailMessage()
         message["Subject"] = f"[PriceWatch] {len(alerts)} alerte(s) de prix"
@@ -170,6 +172,7 @@ class TelegramNotifier(Notifier):
         self.client = client or httpx.Client(timeout=15)
 
     def send(self, alerts: Sequence[AlertRecord]) -> None:
+        """Envoie le récapitulatif via sendMessage, découpé sous la limite de Telegram."""
         url = f"https://api.telegram.org/bot{self.token}/sendMessage"
         for chunk in _split(format_text(alerts), self.MAX_LENGTH):
             self.client.post(url, json={"chat_id": self.chat_id, "text": chunk}).raise_for_status()
@@ -188,6 +191,7 @@ class DiscordNotifier(Notifier):
         self.client = client or httpx.Client(timeout=15)
 
     def send(self, alerts: Sequence[AlertRecord]) -> None:
+        """Poste le récapitulatif sur le webhook, découpé sous la limite de Discord."""
         for chunk in _split(format_text(alerts), self.MAX_LENGTH):
             self.client.post(self.webhook, json={"content": chunk}).raise_for_status()
 

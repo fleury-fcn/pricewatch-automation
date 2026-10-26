@@ -28,6 +28,8 @@ logger = get_logger(__name__)
 
 # -- schémas de réponse ----------------------------------------------------------
 class Health(BaseModel):
+    """État du service."""
+
     status: Literal["ok"] = "ok"
     version: str
     products: int
@@ -36,6 +38,8 @@ class Health(BaseModel):
 
 
 class ProductOut(BaseModel):
+    """Produit suivi et son dernier prix."""
+
     id: int
     source: str
     title: str
@@ -49,6 +53,8 @@ class ProductOut(BaseModel):
 
 
 class PriceOut(BaseModel):
+    """Observation de prix."""
+
     product_id: int
     title: str
     category: str | None
@@ -60,6 +66,8 @@ class PriceOut(BaseModel):
 
 
 class StatsOut(BaseModel):
+    """Indicateurs d'analyse d'un produit."""
+
     product_id: int
     title: str
     category: str | None
@@ -78,6 +86,8 @@ class StatsOut(BaseModel):
 
 
 class AlertOut(BaseModel):
+    """Alerte émise."""
+
     id: int
     run_id: int | None
     product_id: int
@@ -92,6 +102,8 @@ class AlertOut(BaseModel):
 
 
 class RunOut(BaseModel):
+    """Exécution du pipeline."""
+
     id: int
     started_at: datetime
     finished_at: datetime | None
@@ -106,12 +118,16 @@ class RunOut(BaseModel):
 
 
 class RunRequest(BaseModel):
+    """Options d'une exécution déclenchée par l'API."""
+
     send_alerts: bool = Field(True, description="Envoyer les alertes sur les canaux configurés")
     make_report: bool = Field(True, description="Régénérer les rapports HTML/PDF")
     max_pages: int | None = Field(None, ge=1, le=50, description="Limite de pages par source")
 
 
 class RunAccepted(BaseModel):
+    """Accusé de réception d'une exécution lancée en arrière-plan."""
+
     message: str
     status_url: str = "/runs?limit=1"
 
@@ -119,9 +135,9 @@ class RunAccepted(BaseModel):
 # -- utilitaires -----------------------------------------------------------------
 def _records(df: pd.DataFrame) -> list[dict[str, Any]]:
     """DataFrame → liste de dicts JSON-compatibles (NaN/NA → None)."""
-    out = []
+    out: list[dict[str, Any]] = []
     for row in df.to_dict(orient="records"):
-        clean = {}
+        clean: dict[str, Any] = {}
         for key, value in row.items():
             if (
                 value is None
@@ -159,7 +175,8 @@ class _PipelineGuard:
 
 def get_repo(request: Request) -> PriceRepository:
     """Dépendance FastAPI : dépôt de données de l'application."""
-    return request.app.state.repo  # type: ignore[no-any-return]
+    repo: PriceRepository = request.app.state.repo
+    return repo
 
 
 Repo = Annotated[PriceRepository, Depends(get_repo)]

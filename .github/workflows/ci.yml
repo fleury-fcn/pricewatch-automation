@@ -32,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -44,6 +44,9 @@ jobs:
         run: |
           pip install -r requirements-dev.txt
           pip install --no-deps -e .
+      - name: Typage (mypy)
+        if: matrix.python-version == '3.12'
+        run: mypy src app
       - name: Pytest + couverture (seuil 80 %)
         run: pytest --cov=pricewatch --cov-report=term-missing --cov-report=xml --cov-fail-under=80
       - name: Badge de couverture

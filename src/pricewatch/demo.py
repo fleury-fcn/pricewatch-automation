@@ -67,7 +67,7 @@ def catalogue_as_raw(
     when = collected_at or datetime.now(UTC)
 
     def _opt(value: object) -> str | None:
-        return None if pd.isna(value) else str(value)  # type: ignore[arg-type]
+        return None if pd.isna(value) else str(value)
 
     return [
         RawProduct(
