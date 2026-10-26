@@ -59,6 +59,7 @@ alerts:
   channels: [console]          # console | email | telegram | discord
   kinds: [price_drop, target_reached, anomaly]
   max_alerts_per_run: 20
+  cooldown_hours: 72           # évite de réalerter le même produit/type pendant 72 h
 
 report:
   output_dir: reports

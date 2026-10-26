@@ -94,6 +94,7 @@ class AlertSettings(_Strict):
         default_factory=lambda: ["price_drop", "target_reached", "anomaly"]
     )
     max_alerts_per_run: int = Field(20, ge=1)
+    cooldown_hours: float = Field(72, ge=0)  # pas de nouvelle alerte identique avant ce délai
 
 
 class ReportSettings(_Strict):
